@@ -1,283 +1,276 @@
 use std::any::Any;
 use std::any::TypeId;
+use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::iter::Zip;
 
+pub struct EntityHandle(usize);
+
+/// A bunch of data that can be queried together.
 pub struct World {
     archetypes: Vec<Archetype>,
-    archetype_id_to_archetype: HashMap<u64, usize>,
-    component_archetypes: HashMap<TypeId, Vec<(usize, usize)>>,
+    archetype_id_to_index: HashMap<ArchetypeId, usize>,
+    component_id_to_archetypes: HashMap<ComponentId, Vec<(usize, usize)>>,
+    /// Used to provide a temporary location to store and sort ComponentIds
+    temp_component_types: Vec<ComponentId>,
+    /// Also a temporary used to sort and find where the
+    temp_component_types_with_index: Vec<(usize, ComponentId)>,
+    entities: Vec<(usize, usize)>,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             archetypes: Vec::new(),
-            archetype_id_to_archetype: HashMap::new(),
-            component_archetypes: HashMap::new(),
+            archetype_id_to_index: HashMap::new(),
+            component_id_to_archetypes: HashMap::new(),
+            temp_component_types: Vec::with_capacity(8),
+            temp_component_types_with_index: Vec::with_capacity(8),
+            entities: Vec::new(),
         }
     }
 
-    pub fn query<'a, 'b: 'a, QUERY: Query<'a, 'b>>(&'b mut self) -> QUERY::I {
-        QUERY::iterator(self)
+    fn get_component_types<B: ComponentBundle>(&mut self) {
+        self.temp_component_types.clear();
+        B::component_ids(&mut self.temp_component_types);
+
+        // This is a bit messy, but the order the components are sorted into must be known.
+        // So what we do here is sort a vec of tuples of the ComponentId and its index by the ComponentId.
+        // This is used to insert components into the correct ComponentStore of the archetype.
+        self.temp_component_types_with_index.clear();
+        // This is extended to avoid an additional allocation.
+        self.temp_component_types_with_index
+            .extend(self.temp_component_types.iter().copied().enumerate());
+
+        self.temp_component_types_with_index
+            .sort_by(|a, b| a.1.cmp(&b.1));
+
+        self.temp_component_types.sort();
     }
 
-    pub fn get_archetype<'a, 'b: 'a, T: ComponentBundle>(&'b self) -> Option<&'a Archetype> {
-        let archetype_id = T::archetype_id();
-        let index = self.archetype_id_to_archetype.get(&archetype_id).copied();
-        if let Some(index) = index {
-            Some(&self.archetypes[index])
-        } else {
-            None
+    pub fn find_matching_archetypes<B: ComponentBundle>(&mut self) {
+        self.get_component_types::<B>();
+        let mut archetype_indices_out = vec![0; self.temp_component_types.len()];
+        for (i, archetype) in self.archetypes.iter().enumerate() {
+            let matches = archetype
+                .matches_components(&self.temp_component_types, &mut archetype_indices_out);
+
+            println!("Matches: {:?} {:?}", matches, archetype_indices_out);
         }
     }
 
-    pub fn spawn<T: ComponentBundle>(&mut self, data: T) {
-        let archetype_id = T::archetype_id();
+    pub fn spawn<B: ComponentBundle>(&mut self, component_bundle: B) -> EntityHandle {
+        self.get_component_types::<B>();
 
-        let archetype =
-            if let Some(archetype_index) = self.archetype_id_to_archetype.get(&archetype_id) {
-                &mut self.archetypes[*archetype_index]
+        let archetype_id = archetype_id(&self.temp_component_types);
+
+        let (archetype_index, archetype) =
+            if let Some(index) = self.archetype_id_to_index.get(&archetype_id).copied() {
+                (index, &mut self.archetypes[index])
             } else {
-                let index = self.archetypes.len();
-                let (archetype, types) = T::archetype();
+                // Create a new archetype
+                let archetype_index = self.archetypes.len();
+                let archetype = B::new_archetype();
                 self.archetypes.push(archetype);
-                self.archetype_id_to_archetype.insert(archetype_id, index);
-                // Keep track of which archetypes store a component.
-                for (i, t) in types.iter().enumerate() {
-                    //println!("Adding: {:?} to archetype {:?} at index {:?}", t, index, i);
-                    if let Some(s) = self.component_archetypes.get_mut(t) {
-                        s.push((index, i));
+
+                // Keep track of where components are stored in archetypes.
+                for (i, component_id) in self.temp_component_types.iter().enumerate() {
+                    if let Some(s) = self.component_id_to_archetypes.get_mut(&component_id) {
+                        s.push((archetype_index, i));
                     } else {
-                        let v = vec![(index, i)];
-                        self.component_archetypes.insert(*t, v);
+                        let v = vec![(archetype_index, i)];
+                        self.component_id_to_archetypes.insert(*component_id, v);
                     }
                 }
-                &mut self.archetypes[index]
+                (archetype_index, &mut self.archetypes[archetype_index])
             };
-        data.insert_into_archetype(archetype);
+
+        let index_in_archetype =
+            component_bundle.push_to_archetype(&self.temp_component_types_with_index, archetype);
+        self.entities.push((archetype_index, index_in_archetype));
+        EntityHandle(self.entities.len() - 1)
     }
 
-    pub fn get_component_iter<'a, 'b: 'a, T: 'static + Sized>(&'b self) -> ComponentIter<'a, T> {
-        let t = TypeId::of::<T>();
-        let component_archetypes = &self.component_archetypes[&t];
-        let data: Vec<&'a Vec<T>> = component_archetypes
-            .iter()
-            .map(|(archetype, index)| {
-                /*
-                println!(
-                    "Looking up t: {:?} at archetype: {:?} and index: {:?}",
-                    t, archetype, index
-                );*/
-                let archetype = &self.archetypes[*archetype];
-                let components = &archetype.components[*index];
-                components.downcast_ref::<Vec<T>>().unwrap()
-            })
-            .collect();
-        ComponentIter::new(data)
-    }
-}
+    pub fn add_component<T: 'static>(&mut self, entity: EntityHandle, t: T) {
+        let type_id = TypeId::of::<T>();
+        let (archetype_index, index_in_archetype) = self.entities[entity.0];
+        let archetype = &self.archetypes[archetype_index];
 
-// Is there a way to make this use an outer iter and inner iter.
-pub struct ComponentIter<'a, T> {
-    data: Vec<&'a Vec<T>>,
-    current_data: usize,
-    current_iter: std::slice::Iter<'a, T>,
-}
-impl<'a, T> ComponentIter<'a, T> {
-    pub fn new(data: Vec<&'a Vec<T>>) -> Self {
-        let current_iter = data[0].iter();
-        Self {
-            data,
-            current_data: 0,
-            current_iter,
+        // Find if this entity fits into an existing archetype.
+        let existing_component =
+            archetype
+                .components
+                .iter()
+                .enumerate()
+                .find_map(|(i, (store_type_id, _))| {
+                    if store_type_id == &type_id {
+                        Some(i)
+                    } else {
+                        None
+                    }
+                });
+
+        if let Some(c) = existing_component {
+            self.archetypes[archetype_index].replace_component(c, index_in_archetype, t);
+        } else {
+            // Lookup or create a new archetype and then migrate data to it.
+            unimplemented!("add_component should lookup or create a new archetype here")
         }
     }
 }
 
-impl<'a, T: 'static + Sized> Iterator for ComponentIter<'a, T> {
-    type Item = &'a T;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.current_iter.next().or_else(|| {
-            // If we've reached the end of the current iter then advance to the next one.
-            self.current_data += 1;
-            if let Some(d) = self.data.get(self.current_data) {
-                self.current_iter = d.iter();
-                self.current_iter.next()
-            } else {
-                None
-            }
-        })
-    }
+/// Calculates an archetype id from the ids produced from a ComponentBundle
+fn archetype_id(component_ids: &[ComponentId]) -> ArchetypeId {
+    let mut s = DefaultHasher::new();
+    component_ids.hash(&mut s);
+    s.finish()
 }
 
-// Clarity is needed around when and where TypeId is requested, and where it's stored.
+/// A component bundle is a collection of types.
 pub trait ComponentBundle {
-    fn types() -> Vec<TypeId>;
-    fn archetype_id() -> u64;
-    fn archetype() -> (Archetype, Vec<TypeId>);
-    fn insert_into_archetype(self, archetype: &mut Archetype);
+    /// Retrieves sorted component ids
+    fn component_ids(ids_out: &mut Vec<ComponentId>);
+    fn new_archetype() -> Archetype;
+    /// Add an instance of this component bundle to the archetype.
+    fn push_to_archetype(
+        self,
+        component_order: &[(usize, ComponentId)],
+        archetype: &mut Archetype,
+    ) -> usize;
 }
 
-impl<A: Sized + 'static> ComponentBundle for (A,) {
-    fn types() -> Vec<TypeId> {
-        vec![TypeId::of::<A>()]
-    }
+pub type ArchetypeId = u64;
 
-    fn archetype_id() -> u64 {
-        let mut s = DefaultHasher::new();
-        [TypeId::of::<A>()].hash(&mut s);
-        s.finish()
-    }
+/// A unique identifier for a component.
+/// Internally based on TypeId so it will change between Rust compiler versions.
+pub type ComponentId = TypeId;
 
-    fn archetype() -> (Archetype, Vec<TypeId>) {
-        let mut archetype = Archetype::new();
-        archetype.add_component::<A>();
-        (archetype, vec![TypeId::of::<A>()])
-    }
-
-    fn insert_into_archetype(self, archetype: &mut Archetype) {
-        archetype.components[0]
-            .downcast_mut::<Vec<A>>()
-            .unwrap()
-            .push(self.0)
-    }
+/// A wrapper around a Vec
+///
+struct AnyVec {
+    // Always a Vec<T> internally
+    inner: Box<dyn Any>,
 }
 
-impl<A: Sized + 'static, B: Sized + 'static> ComponentBundle for (A, B) {
-    fn types() -> Vec<TypeId> {
-        let mut v = vec![TypeId::of::<A>(), TypeId::of::<B>()];
-        v.sort();
-        v
+impl AnyVec {
+    pub fn new<T: 'static>() -> Self {
+        Self {
+            inner: Box::new(Vec::<T>::new()),
+        }
     }
 
-    fn archetype_id() -> u64 {
-        let mut s = DefaultHasher::new();
-        [TypeId::of::<A>(), TypeId::of::<B>()].sort().hash(&mut s);
-        s.finish()
+    fn to_vec<T: 'static>(&self) -> &Vec<T> {
+        self.inner.downcast_ref::<Vec<T>>().unwrap()
     }
 
-    fn archetype() -> (Archetype, Vec<TypeId>) {
-        let mut archetype = Archetype::new();
-        // These need to be sorted before being inserted.
-        archetype.add_component::<A>();
-        archetype.add_component::<B>();
-        (archetype, vec![TypeId::of::<A>(), TypeId::of::<B>()])
-    }
-
-    fn insert_into_archetype(self, archetype: &mut Archetype) {
-        // These need to be sorted before being inserted.
-        archetype.components[0]
-            .downcast_mut::<Vec<A>>()
-            .unwrap()
-            .push(self.0);
-        archetype.components[1]
-            .downcast_mut::<Vec<B>>()
-            .unwrap()
-            .push(self.1);
+    fn to_vec_mut<T: 'static>(&mut self) -> &mut Vec<T> {
+        self.inner.downcast_mut::<Vec<T>>().unwrap()
     }
 }
 
-/// A storage for the components of entities that share the same component.
+/// Entities that share the same components share the same 'archetype'
+/// Archetypes internally store Vecs of components
 pub struct Archetype {
-    /// An array of Vecs that store components.
-    pub(crate) components: Vec<Box<dyn Any>>,
+    size: usize,
+    // The dyn Any is always a ComponentStore
+    components: Vec<(TypeId, AnyVec)>,
 }
 
 impl Archetype {
-    pub fn new() -> Self {
+    /// Just the initialization of the archetype's vec
+    /// The actual members are added later.
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            components: Vec::new(),
+            components: Vec::with_capacity(capacity),
+            size: 0,
         }
     }
 
-    pub fn add_component<T: 'static>(&mut self) {
-        self.components.push(Box::new(Vec::<T>::new()));
+    pub fn new_component_store<T: 'static>(&mut self) {
+        self.components
+            .push((TypeId::of::<T>(), AnyVec::new::<T>()));
     }
-}
 
-pub trait Query<'a, 'b: 'a> {
-    type Item;
-    type I: Iterator<Item = Self::Item> + 'a;
-    fn iterator(world: &'b World) -> Self::I;
-}
-
-impl<'a, 'b: 'a, A: ComponentReference<'a, 'b>> Query<'a, 'b> for (A,) {
-    type Item = A;
-    type I = A::I;
-
-    fn iterator(world: &'b World) -> Self::I {
-        let archetype = world.get_archetype::<(A::ReferenceType,)>().unwrap();
-        <A>::get_component_iter(world)
+    pub fn push_component<T: 'static>(&mut self, component_index: usize, t: T) {
+        self.components[component_index].1.to_vec_mut().push(t);
     }
-}
 
-impl<'a, 'b: 'a, A: ComponentReference<'a, 'b>, B: ComponentReference<'a, 'b>> Query<'a, 'b>
-    for (A, B)
-{
-    type Item = (A, B);
-    type I = Zip<A::I, B::I>;
-
-    fn iterator(world: &'b World) -> Self::I {
-        let archetype = world
-            .get_archetype::<(A::ReferenceType, B::ReferenceType)>()
-            .unwrap();
-
-        let a = A::get_component_iter(world);
-        let b = B::get_component_iter(world);
-        a.zip(b)
+    pub fn replace_component<T: 'static>(
+        &mut self,
+        component_index: usize,
+        entity_index: usize,
+        t: T,
+    ) {
+        self.components[component_index].1.to_vec_mut()[entity_index] = t;
     }
-}
 
-pub trait ComponentReference<'a, 'b: 'a>: Sized {
-    type ReferenceType: 'static;
-    type I: Iterator<Item = Self> + 'a;
-
-    fn get_component_iter(world: &'b World) -> Self::I;
-}
-
-impl<'a, 'b: 'a, T: 'static> ComponentReference<'a, 'b> for &'a T {
-    type ReferenceType = T;
-    type I = ComponentIter<'a, T>;
-
-    fn get_component_iter(world: &'b World) -> Self::I {
-        world.get_component_iter()
-    }
-}
-
-/*
-impl<'a, 'b: 'a, T: 'static> ComponentReference<'a, 'b> for &'a mut T {
-    type ReferenceType = T;
-    type I = std::slice::IterMut<'a, T>;
-
-    fn get_component_iter(world: &mut World) -> Self::I {
-        components
-            .downcast_mut::<Vec<Self::ReferenceType>>()
-            .unwrap()
-            .iter_mut()
-    }
-}*/
-
-pub struct MultiIter4<I0: Iterator, I1: Iterator, I2: Iterator, I3: Iterator> {
-    iterator: Zip<Zip<Zip<I0, I1>, I2>, I3>,
-}
-
-impl<I0: Iterator, I1: Iterator, I2: Iterator, I3: Iterator> MultiIter4<I0, I1, I2, I3> {
-    pub fn new(first: I0, second: I1, third: I2, fourth: I3) -> Self {
-        Self {
-            iterator: first.zip(second).zip(third).zip(fourth),
+    pub fn matches_components(
+        &self,
+        components: &[TypeId],
+        archetyped_indices_out: &mut [usize],
+    ) -> bool {
+        let mut component_iter = components.iter().enumerate();
+        let mut component = component_iter.next();
+        for (archetype_index, (archetype_component_type, _)) in self.components.iter().enumerate() {
+            if let Some((component_index, component_type)) = component {
+                match archetype_component_type.partial_cmp(component_type) {
+                    // Components are sorted, if we've passed a component
+                    // it can no longer be found.
+                    Some(Ordering::Greater) => return false,
+                    Some(Ordering::Equal) => {
+                        archetyped_indices_out[component_index] = archetype_index;
+                        component = component_iter.next();
+                    }
+                    _ => {}
+                }
+            } else {
+                return true;
+            }
         }
+        component.is_none()
     }
 }
 
-impl<'a, I0: Iterator, I1: Iterator, I2: Iterator, I3: Iterator> Iterator
-    for MultiIter4<I0, I1, I2, I3>
-{
-    type Item = (I0::Item, I1::Item, I2::Item, I3::Item);
+/// It feels like these implementations shouldn't necessarily be made public.
+/// All logic that must vary between bundle types must be implemented per bundle type.
+macro_rules! component_bundle_impl {
+    ($count: expr, $(($name: ident, $index: tt)),*) => {
+        impl< $($name: 'static),*> ComponentBundle for ($($name,)*) {
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iterator.next().map(|(((a, b), c), d)| (a, b, c, d))
-    }
+            fn component_ids(ids_out: &mut Vec<ComponentId>) {
+                ids_out.extend_from_slice(&[
+                    $(TypeId::of::<$name>()), *
+                ]);
+            }
+
+            fn new_archetype() -> Archetype {
+                let mut archetype = Archetype::with_capacity($count);
+                $(archetype.new_component_store::<$name>();) *
+                archetype.components.sort_by(|a, b| a.0.cmp(&b.0));
+                archetype
+            }
+
+            fn push_to_archetype(
+                self,
+                component_order: &[(usize, ComponentId)],
+                archetype: &mut Archetype,
+            ) -> usize {
+                $(archetype.push_component(component_order[$index].0, self.$index);)*
+                archetype.size += 1;
+                archetype.size
+            }
+        }
+    };
 }
+
+// Implement ComponentBundle for a bunch of different sizes of tuples.
+component_bundle_impl! {1, (A, 0)}
+component_bundle_impl! {2, (A, 0), (B, 1)}
+component_bundle_impl! {3, (A, 0), (B, 1), (C, 2)}
+component_bundle_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
+component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
+component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
+component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
+component_bundle_impl! {9, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8)}

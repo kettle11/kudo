@@ -1,18 +1,11 @@
 use kudo::*;
-
 fn main() {
+    struct Hello {}
+    struct Test {}
     let mut world = World::new();
     world.spawn((10.,));
-    world.spawn((13.,));
-    world.spawn((13., true));
+    world.spawn((Hello {}, Test {}, 10.));
+    // world.spawn((Hello {},));
 
-    let query = world.query::<(&f64,)>();
-    for i in query {
-        println!("I: {:?}", i);
-    }
-
-    let query = world.query::<(&f64, &bool)>();
-    for i in query {
-        println!("QUERY 2: {:?}", i);
-    }
+    world.find_matching_archetypes::<(Hello,)>();
 }
