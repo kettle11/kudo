@@ -114,6 +114,17 @@ impl World {
         if let Some(c) = existing_component {
             self.archetypes[archetype_index].replace_component(c, index_in_archetype, t);
         } else {
+            // Find the archetype ID
+            self.temp_component_types.extend(
+                self.archetypes[archetype_index]
+                    .components
+                    .iter()
+                    .map(|(i, _)| i),
+            );
+            self.temp_component_types.push(type_id);
+            self.temp_component_types.sort();
+            let archetype_id = archetype_id(&self.temp_component_types);
+
             // Lookup or create a new archetype and then migrate data to it.
             unimplemented!("add_component should lookup or create a new archetype here")
         }
@@ -258,7 +269,7 @@ macro_rules! component_bundle_impl {
             ) -> usize {
                 $(archetype.push_component(component_order[$index].0, self.$index);)*
                 archetype.size += 1;
-                archetype.size
+                archetype.size - 1
             }
         }
     };
