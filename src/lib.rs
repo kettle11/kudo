@@ -157,11 +157,29 @@ pub type ArchetypeId = u64;
 /// Internally based on TypeId so it will change between Rust compiler versions.
 pub type ComponentId = TypeId;
 
+trait ComponentStore: Any {
+    fn to_any(&self) -> &dyn Any;
+    fn to_any_mut(&mut self) -> &mut dyn Any;
+    fn migrate(&mut self, index: usize, other: &mut AnyVec);
+}
+
+impl<T: 'static> ComponentStore for Vec<T> {
+    fn to_any(&self) -> &dyn Any {
+        self
+    }
+    fn to_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn migrate(&mut self, index: usize, other: &mut AnyVec) {
+        let data = self.swap_remove(index);
+        other.to_vec_mut().push(data);
+    }
+}
 /// A wrapper around a Vec
 ///
 struct AnyVec {
     // Always a Vec<T> internally
-    inner: Box<dyn Any>,
+    inner: Box<dyn ComponentStore>,
 }
 
 impl AnyVec {
@@ -172,11 +190,11 @@ impl AnyVec {
     }
 
     fn to_vec<T: 'static>(&self) -> &Vec<T> {
-        self.inner.downcast_ref::<Vec<T>>().unwrap()
+        self.inner.to_any().downcast_ref::<Vec<T>>().unwrap()
     }
 
     fn to_vec_mut<T: 'static>(&mut self) -> &mut Vec<T> {
-        self.inner.downcast_mut::<Vec<T>>().unwrap()
+        self.inner.to_any_mut().downcast_mut::<Vec<T>>().unwrap()
     }
 }
 
@@ -214,6 +232,14 @@ impl Archetype {
         t: T,
     ) {
         self.components[component_index].1.to_vec_mut()[entity_index] = t;
+    }
+
+    pub fn migrate(&mut self, indices: &[usize], other: &mut Archetype) {
+        for (i, (_, component)) in self.components.iter_mut().enumerate() {
+            component
+                .inner
+                .migrate(i, &mut other.components[indices[i]].1);
+        }
     }
 
     pub fn matches_components(
