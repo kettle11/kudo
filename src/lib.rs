@@ -160,7 +160,7 @@ pub type ComponentId = TypeId;
 trait ComponentStore: Any {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
-    fn migrate(&mut self, index: usize, other: &mut AnyVec);
+    fn migrate(&mut self, index: usize, other: &mut Box<dyn ComponentStore>);
 }
 
 impl<T: 'static> ComponentStore for Vec<T> {
@@ -170,31 +170,13 @@ impl<T: 'static> ComponentStore for Vec<T> {
     fn to_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-    fn migrate(&mut self, index: usize, other: &mut AnyVec) {
+    fn migrate(&mut self, index: usize, other: &mut Box<dyn ComponentStore>) {
         let data = self.swap_remove(index);
-        other.to_vec_mut().push(data);
-    }
-}
-/// A wrapper around a Vec
-///
-struct AnyVec {
-    // Always a Vec<T> internally
-    inner: Box<dyn ComponentStore>,
-}
-
-impl AnyVec {
-    pub fn new<T: 'static>() -> Self {
-        Self {
-            inner: Box::new(Vec::<T>::new()),
-        }
-    }
-
-    fn to_vec<T: 'static>(&self) -> &Vec<T> {
-        self.inner.to_any().downcast_ref::<Vec<T>>().unwrap()
-    }
-
-    fn to_vec_mut<T: 'static>(&mut self) -> &mut Vec<T> {
-        self.inner.to_any_mut().downcast_mut::<Vec<T>>().unwrap()
+        other
+            .to_any_mut()
+            .downcast_mut::<Vec<T>>()
+            .unwrap()
+            .push(data);
     }
 }
 
@@ -203,7 +185,7 @@ impl AnyVec {
 pub struct Archetype {
     size: usize,
     // The dyn Any is always a ComponentStore
-    components: Vec<(TypeId, AnyVec)>,
+    components: Vec<(TypeId, Box<dyn ComponentStore>)>,
 }
 
 impl Archetype {
@@ -216,13 +198,21 @@ impl Archetype {
         }
     }
 
+    fn get_component_store_mut<T: 'static>(&mut self, index: usize) -> &mut Vec<T> {
+        self.components[index]
+            .1
+            .to_any_mut()
+            .downcast_mut::<Vec<T>>()
+            .unwrap()
+    }
+
     pub fn new_component_store<T: 'static>(&mut self) {
         self.components
-            .push((TypeId::of::<T>(), AnyVec::new::<T>()));
+            .push((TypeId::of::<T>(), Box::new(Vec::<T>::new())));
     }
 
     pub fn push_component<T: 'static>(&mut self, component_index: usize, t: T) {
-        self.components[component_index].1.to_vec_mut().push(t);
+        self.get_component_store_mut(component_index).push(t);
     }
 
     pub fn replace_component<T: 'static>(
@@ -231,14 +221,12 @@ impl Archetype {
         entity_index: usize,
         t: T,
     ) {
-        self.components[component_index].1.to_vec_mut()[entity_index] = t;
+        self.get_component_store_mut(component_index)[entity_index] = t;
     }
 
     pub fn migrate(&mut self, indices: &[usize], other: &mut Archetype) {
         for (i, (_, component)) in self.components.iter_mut().enumerate() {
-            component
-                .inner
-                .migrate(i, &mut other.components[indices[i]].1);
+            component.migrate(i, &mut other.components[indices[i]].1);
         }
     }
 
