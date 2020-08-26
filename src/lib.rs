@@ -62,37 +62,36 @@ impl World {
         }
     }
 
+    fn add_archetype(&mut self, archetype_id: ArchetypeId, archetype: Archetype) -> usize {
+        let archetype_index = self.archetypes.len();
+        // Keep track of where components are stored in archetypes.
+        for (i, (component_id, _)) in archetype.components.iter().enumerate() {
+            if let Some(s) = self.component_id_to_archetypes.get_mut(&component_id) {
+                s.push((archetype_index, i));
+            } else {
+                let v = vec![(archetype_index, i)];
+                self.component_id_to_archetypes.insert(*component_id, v);
+            }
+        }
+
+        self.archetypes.push(archetype);
+        self.archetype_id_to_index
+            .insert(archetype_id, archetype_index);
+
+        archetype_index
+    }
+
     pub fn spawn<B: ComponentBundle>(&mut self, component_bundle: B) -> EntityHandle {
         self.get_component_types::<B>();
-
         let archetype_id = archetype_id(&self.temp_component_types);
 
-        /*
-        println!(
-            "TEMP COMPONENT TYPES: {:?} ARCHETYPE ID: {:?}",
-            self.temp_component_types, archetype_id
-        );
-        */
         let (archetype_index, archetype) =
             if let Some(index) = self.archetype_id_to_index.get(&archetype_id).copied() {
                 (index, &mut self.archetypes[index])
             } else {
                 // Create a new archetype
-                let archetype_index = self.archetypes.len();
                 let archetype = B::new_archetype();
-                self.archetypes.push(archetype);
-                self.archetype_id_to_index
-                    .insert(archetype_id, archetype_index);
-
-                // Keep track of where components are stored in archetypes.
-                for (i, component_id) in self.temp_component_types.iter().enumerate() {
-                    if let Some(s) = self.component_id_to_archetypes.get_mut(&component_id) {
-                        s.push((archetype_index, i));
-                    } else {
-                        let v = vec![(archetype_index, i)];
-                        self.component_id_to_archetypes.insert(*component_id, v);
-                    }
-                }
+                let archetype_index = self.add_archetype(archetype_id, archetype);
                 (archetype_index, &mut self.archetypes[archetype_index])
             };
 
@@ -102,45 +101,42 @@ impl World {
             &self.temp_component_types_with_index,
             archetype,
         );
-        /*
-        println!(
-            "ARCHETYPE INDEX: {:?} INDEX IN ARCHETYPE: {:?}",
-            archetype_index, index_in_archetype
-        );*/
+
         self.entities.push((archetype_index, index_in_archetype));
         EntityHandle(entity_id)
     }
 
-    pub fn print_entities(&self) {
-        println!("ENTITIES HERE: {:?}", self.entities);
-    }
     pub fn remove_component<T: 'static>(&mut self, entity: EntityHandle) {
         let type_id = TypeId::of::<T>();
-        let (current_archetype_index, index_in_current_archetype) = self.entities[entity.0];
+        let (old_archetype_index, _) = self.entities[entity.0];
 
         // Find the new archetype ID.
         self.temp_component_types.clear();
-        for (i, _) in self.archetypes[current_archetype_index].components.iter() {
+        for (i, _) in self.archetypes[old_archetype_index].components.iter() {
             if i != &type_id {
                 self.temp_component_types.push(*i);
             }
         }
+        self.temp_component_types.sort();
+
         let new_archetype_id = archetype_id(&self.temp_component_types);
 
-        // If the new archetype exists, push to that, otherwise create a new archetype.
-        if let Some(new_archetype_index) =
+        // If the new archetype exists, push to that, otherwise create the new archetype.
+        let new_archetype_index = if let Some(new_archetype_index) =
             self.archetype_id_to_index.get(&new_archetype_id).copied()
         {
-            self.migrate_components(entity.0, current_archetype_index, new_archetype_index);
+            new_archetype_index
         } else {
-            unimplemented!("Creating a new archetype while removing components isn't implemented")
-        }
+            let new_archetype = self.archetypes[old_archetype_index].copy_structure(Some(type_id));
+            self.add_archetype(new_archetype_id, new_archetype)
+        };
+        self.migrate_components(entity.0, old_archetype_index, new_archetype_index);
     }
 
     pub fn add_component<T: 'static>(&mut self, entity: EntityHandle, t: T) {
         let type_id = TypeId::of::<T>();
-        let (current_archetype_index, index_in_current_archetype) = self.entities[entity.0];
-        let archetype = &self.archetypes[current_archetype_index];
+        let (old_archetype_index, index_in_current_archetype) = self.entities[entity.0];
+        let archetype = &self.archetypes[old_archetype_index];
 
         // Find if this component matches a component already attached to this archetype.
         let existing_component = archetype
@@ -149,7 +145,7 @@ impl World {
             .position(|(store_type_id, _)| store_type_id == &type_id);
 
         if let Some(c) = existing_component {
-            self.archetypes[current_archetype_index].replace_component(
+            self.archetypes[old_archetype_index].replace_component(
                 c,
                 index_in_current_archetype,
                 t,
@@ -158,27 +154,30 @@ impl World {
             // Find the new archetype ID
             self.temp_component_types.clear();
             self.temp_component_types.extend(
-                self.archetypes[current_archetype_index]
+                self.archetypes[old_archetype_index]
                     .components
                     .iter()
                     .map(|(i, _)| i),
             );
             self.temp_component_types.push(type_id);
             self.temp_component_types.sort();
-            let archetype_id = archetype_id(&self.temp_component_types);
+            let new_archetype_id = archetype_id(&self.temp_component_types);
 
             // Lookup or create a new archetype and then migrate data to it.
-            if let Some(new_archetype_index) =
-                self.archetype_id_to_index.get(&archetype_id).copied()
+            let new_archetype_index = if let Some(new_archetype_index) =
+                self.archetype_id_to_index.get(&new_archetype_id).copied()
             {
-                self.migrate_components(entity.0, current_archetype_index, new_archetype_index);
+                new_archetype_index
             } else {
-                unimplemented!("Creating a new archetype while adding components isn't implemented")
-            }
+                let mut new_archetype = self.archetypes[old_archetype_index].copy_structure(None);
+                new_archetype.new_component_store::<T>();
+                self.add_archetype(new_archetype_id, new_archetype)
+            };
+            self.migrate_components(entity.0, old_archetype_index, new_archetype_index);
         }
     }
 
-    /// Migrates components from one archetype into another
+    /// Migrates an entity's components from one archetype into another
     fn migrate_components(
         &mut self,
         entity_index: usize,
@@ -226,7 +225,7 @@ impl World {
     }
 }
 
-// Is there a way to remove this?
+// Is there a way to not use this to mutably borrow twice from the same array?
 #[inline]
 fn get_two_references<'a, T>(
     data: &'a mut [T],
@@ -260,6 +259,7 @@ trait ComponentStore: Any {
     fn to_any_mut(&mut self) -> &mut dyn Any;
     fn migrate(&mut self, index: usize, other: &mut Box<dyn ComponentStore>);
     fn len(&self) -> usize;
+    fn new_same_type(&self) -> Box<dyn ComponentStore>;
 }
 
 impl<T: 'static> ComponentStore for Vec<T> {
@@ -278,6 +278,10 @@ impl<T: 'static> ComponentStore for Vec<T> {
         let data = self.swap_remove(index);
         let other = other.to_any_mut().downcast_mut::<Vec<T>>().unwrap();
         other.push(data);
+    }
+
+    fn new_same_type(&self) -> Box<dyn ComponentStore> {
+        Box::new(Vec::<T>::new())
     }
 
     fn len(&self) -> usize {
@@ -301,6 +305,22 @@ impl Archetype {
             entity_ids: Vec::new(),
             components: Vec::with_capacity(capacity),
         }
+    }
+
+    /// Copy an archetype into a new archetype with the same structure.
+    /// Used when adding or removing a component from an existing archetype.
+    /// Provides an option for a component to skip to facilitate initializing an archetype
+    /// with one component removed.
+    fn copy_structure(&self, skip: Option<TypeId>) -> Archetype {
+        let mut archetype = Archetype::with_capacity(self.components.len());
+        for (type_id, component) in self.components.iter() {
+            if Some(*type_id) != skip {
+                archetype
+                    .components
+                    .push((*type_id, component.new_same_type()))
+            }
+        }
+        archetype
     }
 
     fn get_component_store_mut<T: 'static>(&mut self, index: usize) -> &mut Vec<T> {
