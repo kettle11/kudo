@@ -127,68 +127,60 @@ impl World {
         {
             new_archetype_index
         } else {
-            let new_archetype = self.archetypes[old_archetype_index].copy_structure(Some(type_id));
+            let new_archetype =
+                self.archetypes[old_archetype_index].copy_structure_with_one_fewer(type_id);
             self.add_archetype(new_archetype_id, new_archetype)
         };
-        self.migrate_components(entity.0, old_archetype_index, new_archetype_index);
+        self.migrate_entity(entity.0, old_archetype_index, new_archetype_index);
     }
 
-    pub fn add_component<T: 'static>(&mut self, entity: EntityHandle, t: T) {
+    pub fn add_component<T: 'static>(&mut self, entity: EntityHandle, new_component: T) {
         let type_id = TypeId::of::<T>();
         let (old_archetype_index, index_in_current_archetype) = self.entities[entity.0];
-        let archetype = &self.archetypes[old_archetype_index];
+        let old_archetype = &mut self.archetypes[old_archetype_index];
+        let new_component_position = old_archetype.type_ids.binary_search(&type_id);
 
-        // Find if this component matches a component already attached to this archetype.
-        let existing_component = archetype
-            .type_ids
-            .iter()
-            .position(|store_type_id| store_type_id == &type_id);
-
-        if let Some(c) = existing_component {
-            self.archetypes[old_archetype_index].replace_component(
-                c,
-                index_in_current_archetype,
-                t,
-            );
-        } else {
-            // Find the new archetype ID
-            self.temp_component_types.clear();
-            // Iterate all the old type ids and insert the new type id at the appropriate location.
-            for id in self.archetypes[old_archetype_index].type_ids.iter() {
-                if *id > type_id {
-                    self.temp_component_types.push(type_id);
-                    self.temp_component_types.push(*id);
-                } else {
-                    self.temp_component_types.push(type_id);
-                }
+        match new_component_position {
+            // The component already exists, replace it
+            Ok(position) => {
+                old_archetype.replace_component(
+                    position,
+                    index_in_current_archetype,
+                    new_component,
+                );
             }
-            let new_archetype_id = archetype_id(&self.temp_component_types);
+            // The component does not already exist, find or create a new archetype
+            Err(new_component_position) => {
+                // Find the new archetype ID
+                self.temp_component_types.clear();
+                self.temp_component_types
+                    .extend(old_archetype.type_ids.iter());
+                self.temp_component_types
+                    .insert(new_component_position, type_id);
+                let new_archetype_id = archetype_id(&self.temp_component_types);
 
-            // Lookup or create a new archetype and then migrate data to it.
-            let new_archetype_index = if let Some(new_archetype_index) =
-                self.archetype_id_to_index.get(&new_archetype_id).copied()
-            {
-                new_archetype_index
-            } else {
-                let mut new_archetype = self.archetypes[old_archetype_index].copy_structure(None);
-                let type_id = TypeId::of::<T>();
-                match new_archetype.type_ids.binary_search(&type_id) {
-                    Err(position) => {
-                        new_archetype.type_ids.insert(position, type_id);
-                        new_archetype
-                            .components
-                            .insert(position, Box::new(Vec::<T>::new()));
-                    }
-                    _ => unreachable!("Unexpected duplicate component"),
-                }
-                self.add_archetype(new_archetype_id, new_archetype)
-            };
-            self.migrate_components(entity.0, old_archetype_index, new_archetype_index);
+                // Lookup or create a new archetype and then migrate data to it.
+                let new_archetype_index = if let Some(new_archetype_index) =
+                    self.archetype_id_to_index.get(&new_archetype_id).copied()
+                {
+                    new_archetype_index
+                } else {
+                    let additional_component_store = Box::new(Vec::<T>::new());
+                    let new_archetype = old_archetype
+                        .copy_structure_with_one_additional(type_id, additional_component_store);
+                    self.add_archetype(new_archetype_id, new_archetype)
+                };
+                // Migrate the old component data to the new archetype
+                self.migrate_entity(entity.0, old_archetype_index, new_archetype_index);
+                // Push the new component data to the new archetype
+                self.archetypes[new_archetype_index]
+                    .push_component(new_component_position, new_component);
+            }
         }
     }
 
     /// Migrates an entity's components from one archetype into another
-    fn migrate_components(
+    fn migrate_entity(
         &mut self,
         entity_index: usize,
         old_archetype_index: usize,
@@ -320,18 +312,42 @@ impl Archetype {
         }
     }
 
-    /// Copy an archetype into a new archetype with the same structure.
-    /// Used when adding or removing a component from an existing archetype.
-    /// Provides an option for a component to skip to facilitate initializing an archetype
-    /// with one component removed.
-    fn copy_structure(&self, skip: Option<TypeId>) -> Archetype {
+    /// Copies the structure of this archetype but removes a component store.
+    fn copy_structure_with_one_fewer(&self, skip: TypeId) -> Archetype {
         let mut new_archetype = Archetype::with_capacity(self.components.len());
         let types_and_components = self.type_ids.iter().zip(self.components.iter());
         for (type_id, component) in types_and_components {
-            if Some(*type_id) != skip {
+            if *type_id != skip {
                 new_archetype.components.push(component.new_same_type());
                 new_archetype.type_ids.push(*type_id);
             }
+        }
+        new_archetype
+    }
+
+    /// Copies the structure of this archetype but adds an additional component store.
+    fn copy_structure_with_one_additional(
+        &self,
+        additional_type_id: TypeId,
+        additional_component_store: Box<dyn ComponentStore>,
+    ) -> Archetype {
+        let mut additional_component_store = Some(additional_component_store);
+        let mut new_archetype = Archetype::with_capacity(self.components.len());
+        let types_and_components = self.type_ids.iter().zip(self.components.iter());
+        for (type_id, component) in types_and_components {
+            if *type_id > additional_type_id {
+                new_archetype
+                    .components
+                    .push(additional_component_store.take().unwrap());
+                new_archetype.type_ids.push(additional_type_id);
+            }
+            new_archetype.components.push(component.new_same_type());
+            new_archetype.type_ids.push(*type_id);
+        }
+        // If the new component store wasn't inserted, it's the last item so insert it here.
+        if let Some(additional_component_store) = additional_component_store {
+            new_archetype.components.push(additional_component_store);
+            new_archetype.type_ids.push(additional_type_id);
         }
         new_archetype
     }
