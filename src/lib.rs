@@ -171,7 +171,16 @@ impl World {
                 new_archetype_index
             } else {
                 let mut new_archetype = self.archetypes[old_archetype_index].copy_structure(None);
-                new_archetype.insert_component_store::<T>();
+                let type_id = TypeId::of::<T>();
+                match new_archetype.type_ids.binary_search(&type_id) {
+                    Err(position) => {
+                        new_archetype.type_ids.insert(position, type_id);
+                        new_archetype
+                            .components
+                            .insert(position, Box::new(Vec::<T>::new()));
+                    }
+                    _ => unreachable!("Unexpected duplicate component"),
+                }
                 self.add_archetype(new_archetype_id, new_archetype)
             };
             self.migrate_components(entity.0, old_archetype_index, new_archetype_index);
@@ -265,7 +274,6 @@ trait ComponentStore: Any {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
     fn migrate(&mut self, index: usize, other: &mut Box<dyn ComponentStore>);
-    fn length(&self) -> usize;
     fn new_same_type(&self) -> Box<dyn ComponentStore>;
 }
 
@@ -289,10 +297,6 @@ impl<T: 'static> ComponentStore for Vec<T> {
 
     fn new_same_type(&self) -> Box<dyn ComponentStore> {
         Box::new(Vec::<T>::new())
-    }
-
-    fn length(&self) -> usize {
-        self.len()
     }
 }
 
@@ -337,17 +341,6 @@ impl Archetype {
             .to_any_mut()
             .downcast_mut::<Vec<T>>()
             .unwrap()
-    }
-
-    fn insert_component_store<T: 'static>(&mut self) {
-        let type_id = TypeId::of::<T>();
-        match self.type_ids.binary_search(&type_id) {
-            Err(position) => {
-                self.type_ids.insert(position, type_id);
-                self.components.insert(position, Box::new(Vec::<T>::new()));
-            }
-            _ => unreachable!("Unexpected duplicate component"),
-        }
     }
 
     fn push_component<T: 'static>(&mut self, component_index: usize, t: T) {
