@@ -106,6 +106,11 @@ impl World {
         EntityHandle(entity_id)
     }
 
+    pub fn move_component<T: 'static>(&mut self, from: EntityHandle, to: EntityHandle) {
+        let t = self.remove_component::<T>(from);
+        self.add_component(to, t);
+    }
+
     pub fn remove_component<T: 'static>(&mut self, entity: EntityHandle) -> T {
         let type_id = TypeId::of::<T>();
         let (old_archetype_index, entity_index_in_archetype) = self.entities[entity.0];
@@ -124,7 +129,7 @@ impl World {
                 removing_component_position = i;
             }
         }
-        
+
         self.temp_component_types.sort();
 
         let new_archetype_id = archetype_id(&self.temp_component_types);
