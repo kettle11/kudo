@@ -106,17 +106,25 @@ impl World {
         EntityHandle(entity_id)
     }
 
-    pub fn remove_component<T: 'static>(&mut self, entity: EntityHandle) {
+    pub fn remove_component<T: 'static>(&mut self, entity: EntityHandle) -> T {
         let type_id = TypeId::of::<T>();
-        let (old_archetype_index, _) = self.entities[entity.0];
+        let (old_archetype_index, entity_index_in_archetype) = self.entities[entity.0];
 
         // Find the new archetype ID.
         self.temp_component_types.clear();
-        for id in self.archetypes[old_archetype_index].type_ids.iter() {
+        let mut removing_component_position = 0;
+        for (i, id) in self.archetypes[old_archetype_index]
+            .type_ids
+            .iter()
+            .enumerate()
+        {
             if id != &type_id {
                 self.temp_component_types.push(*id);
+            } else {
+                removing_component_position = i;
             }
         }
+        
         self.temp_component_types.sort();
 
         let new_archetype_id = archetype_id(&self.temp_component_types);
@@ -132,6 +140,8 @@ impl World {
             self.add_archetype(new_archetype_id, new_archetype)
         };
         self.migrate_entity(entity.0, old_archetype_index, new_archetype_index);
+        self.archetypes[old_archetype_index]
+            .remove_component(removing_component_position, entity_index_in_archetype)
     }
 
     pub fn add_component<T: 'static>(&mut self, entity: EntityHandle, new_component: T) {
@@ -231,6 +241,8 @@ impl World {
             self.entities[*entity_moved] = (old_archetype_index, entity_index_in_archetype);
         }
     }
+
+    fn query() {}
 }
 
 // Is there a way to not use this to mutably borrow twice from the same array?
@@ -363,6 +375,11 @@ impl Archetype {
         self.get_component_store_mut(component_index).push(t);
     }
 
+    fn remove_component<T: 'static>(&mut self, component_index: usize, entity_index: usize) -> T {
+        self.get_component_store_mut(component_index)
+            .swap_remove(entity_index)
+    }
+
     fn len(&self) -> usize {
         self.entity_ids.len()
     }
@@ -396,6 +413,31 @@ impl Archetype {
         component.is_none()
     }
 }
+
+trait Query {
+    type Item;
+}
+trait QueryParameter {
+    type Item;
+}
+
+impl<T> QueryParameter for &T {
+    type Item = T;
+}
+impl<T> QueryParameter for &mut T {
+    type Item = T;
+}
+
+macro_rules! query_impl {
+    ($count: expr, $(($name: ident, $index: tt)),*) => {
+        impl<$($name: QueryParameter),*> Query for ($($name,)*) {
+            type Item = ($($name,) *);
+
+        }
+    };
+}
+
+query_impl! {1, (A, 0)}
 
 /// A component bundle is a collection of types.
 pub trait ComponentBundle {
