@@ -21,6 +21,33 @@ pub struct World {
     entities: Vec<(usize, usize)>,
 }
 
+pub struct WorldInfo {
+    archetype_id_to_index: HashMap<ArchetypeId, usize>,
+    component_id_to_archetypes: HashMap<ComponentId, Vec<(usize, usize)>>,
+    /// Used to provide a temporary location to store and sort ComponentIds
+    temp_component_types: Vec<ComponentId>,
+    /// Also a temporary used to sort and find where the
+    temp_component_types_with_index: Vec<(usize, ComponentId)>,
+    // Archetype index and then index within that archetype
+    entities: Vec<(usize, usize)>,
+}
+
+pub struct QueryableWorld<'a> {
+    archetypes: Vec<QueryableArchetype<'a>>,
+}
+
+impl World {
+    pub fn into_queryable<'a, 'b: 'a>(&'b mut self) -> QueryableWorld<'a> {
+        QueryableWorld {
+            archetypes: self
+                .archetypes
+                .iter_mut()
+                .map(|a| a.into_queryable_archetype())
+                .collect(),
+        }
+    }
+}
+
 impl World {
     pub fn new() -> Self {
         Self {
@@ -407,6 +434,17 @@ impl<T: 'static> ComponentStore for Vec<T> {
     }
 }
 
+use std::sync::RwLock;
+
+/// A queryable archetype is an archetype where its individual component stores are protected
+/// with RwLocks to allow queries to borrow only parts of an archetype.
+pub struct QueryableArchetype<'a> {
+    entity_ids: &'a mut Vec<usize>,
+    // The dyn Any is always a ComponentStore
+    type_ids: Vec<TypeId>,
+    components: Vec<RwLock<&'a mut dyn ComponentStore>>,
+}
+
 /// Entities that share the same components share the same 'archetype'
 /// Archetypes internally store Vecs of components
 pub struct Archetype {
@@ -417,6 +455,22 @@ pub struct Archetype {
 }
 
 impl Archetype {
+    /// A QueryableArchetype borrows the archetype and stores its internal components
+    /// in a way they can each be accessed.
+    pub fn into_queryable_archetype<'a, 'b: 'a>(&'b mut self) -> QueryableArchetype<'a> {
+        let mut components: Vec<RwLock<&'a mut dyn ComponentStore>> = Vec::new();
+        for c in self.components.iter_mut() {
+            components.push(RwLock::new(&mut **c))
+        }
+
+        QueryableArchetype {
+            entity_ids: &mut self.entity_ids,
+            // Clone instead of borrow because it's accessed frequently and it's small
+            type_ids: self.type_ids.clone(),
+            components,
+        }
+    }
+
     /// Just the initialization of the archetype's vec
     /// The actual members are added later.
     pub fn with_capacity(capacity: usize) -> Self {
