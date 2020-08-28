@@ -21,7 +21,9 @@ pub struct World {
     entities: Vec<(usize, usize)>,
 }
 
-pub struct WorldInfo {
+// It'd be nice to not duplicate this data and instead have some shared structure that's declared once.
+pub struct QueryableWorld {
+    archetypes: Vec<QueryableArchetype>,
     archetype_id_to_index: HashMap<ArchetypeId, usize>,
     component_id_to_archetypes: HashMap<ComponentId, Vec<(usize, usize)>>,
     /// Used to provide a temporary location to store and sort ComponentIds
@@ -32,18 +34,46 @@ pub struct WorldInfo {
     entities: Vec<(usize, usize)>,
 }
 
-pub struct QueryableWorld<'a> {
-    archetypes: Vec<QueryableArchetype<'a>>,
+impl QueryableWorld {
+    pub fn into_world(self) -> World {
+        World {
+            archetypes: self
+                .archetypes
+                .into_iter()
+                .map(|a| a.into_archetype())
+                .collect(),
+            archetype_id_to_index: self.archetype_id_to_index,
+            component_id_to_archetypes: self.component_id_to_archetypes,
+            /// Used to provide a temporary location to store and sort ComponentIds
+            temp_component_types: self.temp_component_types,
+            /// Also a temporary used to sort and find where the
+            temp_component_types_with_index: self.temp_component_types_with_index,
+            // Archetype index and then index within that archetype
+            entities: self.entities,
+        }
+    }
+
+    pub fn query<'a, 'b: 'a, Q: QueryBundle<'a>>(&'b mut self) -> Q::ITERATOR {
+        Q::iterator(self)
+    }
 }
 
 impl World {
-    pub fn into_queryable<'a, 'b: 'a>(&'b mut self) -> QueryableWorld<'a> {
+    pub fn into_queryable_world(self) -> QueryableWorld {
         QueryableWorld {
             archetypes: self
                 .archetypes
-                .iter_mut()
+                .into_iter()
                 .map(|a| a.into_queryable_archetype())
                 .collect(),
+            archetype_id_to_index: self.archetype_id_to_index,
+            component_id_to_archetypes: self.component_id_to_archetypes,
+            /// Used to provide a temporary location to store and sort ComponentIds
+            temp_component_types: self.temp_component_types,
+            /// Also a temporary used to sort and find where the
+            temp_component_types_with_index: self.temp_component_types_with_index,
+            // Archetype index and then index within that archetype
+            entities: self.entities,
         }
     }
 }
@@ -273,16 +303,12 @@ impl World {
             println!("Matches: {:?} {:?}", matches, archetype_indices_out);
         }
     }
-
-    pub fn query<'a, 'b: 'a, Q: QueryBundle<'a>>(&'b mut self) -> Q::ITERATOR {
-        Q::iterator(self)
-    }
 }
 
 /// A collection of reference types that will be used to construct a query.
 pub trait QueryBundle<'a> {
     type ITERATOR: Iterator + 'a;
-    fn iterator<'b: 'a>(world: &'b World) -> Self::ITERATOR;
+    fn iterator(world: &QueryableWorld) -> Self::ITERATOR;
 }
 
 /// An individual reference type in a query
@@ -291,13 +317,13 @@ pub trait QueryParameter<'a> {
 
     /// Each query parameter knows what type of Iterator (mut or immutable)
     /// it wants from an Archetype.
-    fn get_component_iter<'b: 'a>(index: usize, archetype: &'b Archetype) -> Self::ITERATOR;
+    fn get_component_iter(index: usize, archetype: &QueryableArchetype) -> Self::ITERATOR;
 }
 
 impl<'a, T: 'static> QueryParameter<'a> for &T {
     type ITERATOR = std::slice::Iter<'a, T>;
-    fn get_component_iter<'b: 'a>(index: usize, archetype: &'b Archetype) -> Self::ITERATOR {
-        archetype.get_component_store(index).iter()
+    fn get_component_iter(index: usize, archetype: &QueryableArchetype) -> Self::ITERATOR {
+        unimplemented!()
     }
 }
 
@@ -314,14 +340,14 @@ use std::iter::Zip;
 
 impl<'a, A: QueryParameter<'a> + 'a> QueryBundle<'a> for (A,) {
     type ITERATOR = A::ITERATOR;
-    fn iterator<'b: 'a>(_world: &'b World) -> Self::ITERATOR {
+    fn iterator(_world: &QueryableWorld) -> Self::ITERATOR {
         <A as QueryParameter>::get_component_iter(0, &_world.archetypes[0])
     }
 }
 
 impl<'a, A: QueryParameter<'a> + 'a, B: QueryParameter<'a> + 'a> QueryBundle<'a> for (A, B) {
     type ITERATOR = Zip<A::ITERATOR, B::ITERATOR>;
-    fn iterator<'b: 'a>(_world: &'b World) -> Self::ITERATOR {
+    fn iterator(_world: &QueryableWorld) -> Self::ITERATOR {
         let a_iter = <A as QueryParameter>::get_component_iter(0, &_world.archetypes[0]);
         let b_iter = <B as QueryParameter>::get_component_iter(0, &_world.archetypes[1]);
         a_iter.zip(b_iter)
@@ -438,11 +464,35 @@ use std::sync::RwLock;
 
 /// A queryable archetype is an archetype where its individual component stores are protected
 /// with RwLocks to allow queries to borrow only parts of an archetype.
-pub struct QueryableArchetype<'a> {
-    entity_ids: &'a mut Vec<usize>,
+pub struct QueryableArchetype {
+    entity_ids: Vec<usize>,
     // The dyn Any is always a ComponentStore
     type_ids: Vec<TypeId>,
-    components: Vec<RwLock<&'a mut dyn ComponentStore>>,
+    components: Vec<RwLock<Box<dyn ComponentStore>>>,
+}
+
+impl QueryableArchetype {
+    pub fn into_archetype(self) -> Archetype {
+        let components = self
+            .components
+            .into_iter()
+            .map(|c| c.into_inner().unwrap())
+            .collect();
+        Archetype {
+            entity_ids: self.entity_ids,
+            // Clone instead of borrow because it's accessed frequently and it's small
+            type_ids: self.type_ids.clone(),
+            components,
+        }
+    }
+
+    fn get_iter<T: 'static>(&self, index: usize) -> std::slice::Iter<T> {
+        unimplemented!()
+    }
+
+    fn get_mutable_iter<T: 'static>(&mut self, index: usize) -> &mut Vec<T> {
+        unimplemented!()
+    }
 }
 
 /// Entities that share the same components share the same 'archetype'
@@ -457,14 +507,14 @@ pub struct Archetype {
 impl Archetype {
     /// A QueryableArchetype borrows the archetype and stores its internal components
     /// in a way they can each be accessed.
-    pub fn into_queryable_archetype<'a, 'b: 'a>(&'b mut self) -> QueryableArchetype<'a> {
-        let mut components: Vec<RwLock<&'a mut dyn ComponentStore>> = Vec::new();
-        for c in self.components.iter_mut() {
-            components.push(RwLock::new(&mut **c))
-        }
-
+    pub fn into_queryable_archetype(self) -> QueryableArchetype {
+        let components = self
+            .components
+            .into_iter()
+            .map(|c| RwLock::new(c))
+            .collect();
         QueryableArchetype {
-            entity_ids: &mut self.entity_ids,
+            entity_ids: self.entity_ids,
             // Clone instead of borrow because it's accessed frequently and it's small
             type_ids: self.type_ids.clone(),
             components,
