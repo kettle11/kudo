@@ -51,17 +51,6 @@ impl World {
         self.temp_component_types.sort();
     }
 
-    pub fn find_matching_archetypes<B: ComponentBundle>(&mut self) {
-        self.get_component_types::<B>();
-        let mut archetype_indices_out = vec![0; self.temp_component_types.len()];
-        for (_, archetype) in self.archetypes.iter().enumerate() {
-            let matches = archetype
-                .matches_components(&self.temp_component_types, &mut archetype_indices_out);
-
-            println!("Matches: {:?} {:?}", matches, archetype_indices_out);
-        }
-    }
-
     fn add_archetype(&mut self, archetype_id: ArchetypeId, archetype: Archetype) -> usize {
         let archetype_index = self.archetypes.len();
         // Keep track of where components are stored in archetypes.
@@ -247,7 +236,116 @@ impl World {
         }
     }
 
-    fn query() {}
+    pub fn find_matching_archetypes<B: ComponentBundle>(&mut self) {
+        self.get_component_types::<B>();
+        let mut archetype_indices_out = vec![0; self.temp_component_types.len()];
+        for (_, archetype) in self.archetypes.iter().enumerate() {
+            let matches = archetype
+                .matches_components(&self.temp_component_types, &mut archetype_indices_out);
+
+            println!("Matches: {:?} {:?}", matches, archetype_indices_out);
+        }
+    }
+
+    pub fn query<'a, 'b: 'a, Q: QueryBundle<'a>>(&'b mut self) -> Q::ITERATOR {
+        Q::iterator(self)
+    }
+}
+
+/// A collection of reference types that will be used to construct a query.
+pub trait QueryBundle<'a> {
+    type ITERATOR: Iterator + 'a;
+    fn iterator<'b: 'a>(world: &'b World) -> Self::ITERATOR;
+}
+
+/// An individual reference type in a query
+pub trait QueryParameter<'a> {
+    type ITERATOR: Iterator;
+
+    /// Each query parameter knows what type of Iterator (mut or immutable)
+    /// it wants from an Archetype.
+    fn get_component_iter<'b: 'a>(index: usize, archetype: &'b Archetype) -> Self::ITERATOR;
+}
+
+impl<'a, T: 'static> QueryParameter<'a> for &T {
+    type ITERATOR = std::slice::Iter<'a, T>;
+    fn get_component_iter<'b: 'a>(index: usize, archetype: &'b Archetype) -> Self::ITERATOR {
+        archetype.get_component_store(index).iter()
+    }
+}
+
+/*
+impl<'a, T: 'static> QueryParameter<'a> for &mut T {
+    type ITERATOR = std::slice::IterMut<'a, T>;
+    fn get_component_iter<'b: 'a>(index: usize, archetype: &'b mut Archetype) -> Self::ITERATOR {
+        archetype.get_component_store_mut(index).iter_mut()
+    }
+}
+*/
+
+use std::iter::Zip;
+
+impl<'a, A: QueryParameter<'a> + 'a> QueryBundle<'a> for (A,) {
+    type ITERATOR = A::ITERATOR;
+    fn iterator<'b: 'a>(_world: &'b World) -> Self::ITERATOR {
+        <A as QueryParameter>::get_component_iter(0, &_world.archetypes[0])
+    }
+}
+
+impl<'a, A: QueryParameter<'a> + 'a, B: QueryParameter<'a> + 'a> QueryBundle<'a> for (A, B) {
+    type ITERATOR = Zip<A::ITERATOR, B::ITERATOR>;
+    fn iterator<'b: 'a>(_world: &'b World) -> Self::ITERATOR {
+        let a_iter = <A as QueryParameter>::get_component_iter(0, &_world.archetypes[0]);
+        let b_iter = <B as QueryParameter>::get_component_iter(0, &_world.archetypes[1]);
+        a_iter.zip(b_iter)
+    }
+}
+/*
+macro_rules! query_impl {
+    ($count: expr, $(($name: ident, $index: tt)),*) => {
+        impl<'a, $($name: QueryParameter<'a> + 'a),*> QueryBundle<'a> for ($($name,)*) {
+            type ITERATOR = std::slice::Iter::<'a, ($($name,) *)>;
+
+            fn iterator(_world: &World) -> Self::ITERATOR {
+                // Find all archetypes that match this QueryBundle.
+                // Get an iterator for each archetype that can be assembled into a QueryIterator
+                unimplemented!()
+            }
+        }
+    };
+}
+
+query_impl! {1, (A, 0)}
+*/
+
+struct ChainedIterator<I: Iterator> {
+    current_iter: I,
+    iterators: Vec<I>,
+}
+
+impl<I: Iterator> ChainedIterator<I> {
+    pub fn new(mut iterators: Vec<I>) -> Self {
+        let current_iter = iterators.pop().unwrap();
+        Self {
+            current_iter,
+            iterators,
+        }
+    }
+}
+
+impl<I: Iterator> Iterator for ChainedIterator<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Chain the iterators together.
+        // If the end of one iterator is reached go to the next.
+        self.current_iter.next().or_else(|| {
+            self.iterators.pop().map_or(None, |i| {
+                self.current_iter = i;
+                self.current_iter.next()
+            })
+        })
+    }
 }
 
 // Is there a way to not use this to mutably borrow twice from the same array?
@@ -369,6 +467,13 @@ impl Archetype {
         new_archetype
     }
 
+    fn get_component_store<T: 'static>(&self, index: usize) -> &Vec<T> {
+        self.components[index]
+            .to_any()
+            .downcast_ref::<Vec<T>>()
+            .unwrap()
+    }
+
     fn get_component_store_mut<T: 'static>(&mut self, index: usize) -> &mut Vec<T> {
         self.components[index]
             .to_any_mut()
@@ -418,31 +523,6 @@ impl Archetype {
         component.is_none()
     }
 }
-
-trait Query {
-    type Item;
-}
-trait QueryParameter {
-    type Item;
-}
-
-impl<T> QueryParameter for &T {
-    type Item = T;
-}
-impl<T> QueryParameter for &mut T {
-    type Item = T;
-}
-
-macro_rules! query_impl {
-    ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl<$($name: QueryParameter),*> Query for ($($name,)*) {
-            type Item = ($($name,) *);
-
-        }
-    };
-}
-
-query_impl! {1, (A, 0)}
 
 /// A component bundle is a collection of types.
 pub trait ComponentBundle {
