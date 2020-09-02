@@ -24,17 +24,17 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 // Then those associated types need to be bundled together into a final query.
 // Potentially as part of the bundle's macro.
 
-trait Query<'a> {
+trait Query<'a, 'b: 'a> {
     type ITERATOR: Iterator;
-    fn iterator(&'a mut self) -> Self::ITERATOR;
+    fn iterator(&'b mut self) -> Self::ITERATOR;
 }
 
 macro_rules! query_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl<'a, $($name: ComponentQueryTrait<'a>),*> Query<'a> for ($($name,)*) {
+        impl<'a, 'b: 'a, $($name: ComponentQueryTrait<'a, 'b>),*> Query<'a, 'b> for ($($name,)*) {
             type ITERATOR = QueryIterator<($($name::ITERATOR,)*)>;
 
-            fn iterator(&'a mut self) -> Self::ITERATOR {
+            fn iterator(&'b mut self) -> Self::ITERATOR {
                QueryIterator(($(self.$index.iterator(),)*))
             }
         }
@@ -42,22 +42,23 @@ macro_rules! query_impl {
 }
 
 // Manual implementation for a query of one item
-impl<'a, A: ComponentQueryTrait<'a>> Query<'a> for A {
+impl<'a, 'b: 'a, A: ComponentQueryTrait<'a, 'b>> Query<'a, 'b> for A {
     type ITERATOR = A::ITERATOR;
-    fn iterator(&'a mut self) -> Self::ITERATOR {
+    fn iterator(&'b mut self) -> Self::ITERATOR {
         self.iterator()
     }
 }
 
 // Manual implementation for a query of two items
-impl<'a, A: ComponentQueryTrait<'a>, B: ComponentQueryTrait<'a>> Query<'a> for (A, B) {
+impl<'a, 'b: 'a, A: ComponentQueryTrait<'a, 'b>, B: ComponentQueryTrait<'a, 'b>> Query<'a, 'b>
+    for (A, B)
+{
     type ITERATOR = Zip<A::ITERATOR, B::ITERATOR>;
-    fn iterator(&'a mut self) -> Self::ITERATOR {
+    fn iterator(&'b mut self) -> Self::ITERATOR {
         self.0.iterator().zip(self.1.iterator())
     }
 }
 
-/*
 query_impl! {3, (A, 0), (B, 1), (C, 2)}
 query_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
 query_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
@@ -65,7 +66,6 @@ query_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
 query_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
 query_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
 query_impl! {9, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8)}
-*/
 
 /// QueryBundle defines a collection of QueryParams that can be used to construct a Query.
 /// A query bundle defines how to construct its query.
@@ -121,7 +121,7 @@ query_bundle_impl! {9, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (
 */
 /// Part of a query bundle
 pub trait QueryParam<'a> {
-    type ComponentQuery: ComponentQueryTrait<'a>;
+    type ComponentQuery;
     fn type_id() -> TypeId;
     fn get_component_query(archetypes: &Vec<QueryableArchetype>) -> Self::ComponentQuery;
 }
@@ -150,11 +150,11 @@ impl<'a, T: 'static> QueryParam<'a> for &mut T {
     }
 }
 
-pub trait ComponentQueryTrait<'a> {
+pub trait ComponentQueryTrait<'a, 'b: 'a> {
     type ITERATOR: Iterator;
     fn new() -> Self;
-    fn add_archetype(&'a mut self, archetype: &'a QueryableArchetype, component_index: usize);
-    fn iterator(&'a mut self) -> Self::ITERATOR;
+    fn add_archetype(&'b mut self, archetype: &'b QueryableArchetype, component_index: usize);
+    fn iterator(&'b mut self) -> Self::ITERATOR;
 }
 
 pub struct MutableComponentQuery<'a, T: 'a> {
@@ -162,7 +162,7 @@ pub struct MutableComponentQuery<'a, T: 'a> {
     phantom: std::marker::PhantomData<T>,
 }
 
-impl<'a, T: 'static> ComponentQueryTrait<'a> for MutableComponentQuery<'a, T> {
+impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a, 'b> for MutableComponentQuery<'b, T> {
     type ITERATOR = ComponentIterMut<'a, T>;
 
     fn new() -> Self {
@@ -171,12 +171,12 @@ impl<'a, T: 'static> ComponentQueryTrait<'a> for MutableComponentQuery<'a, T> {
             phantom: std::marker::PhantomData,
         }
     }
-    fn add_archetype(&'a mut self, archetype: &'a QueryableArchetype, component_index: usize) {
+    fn add_archetype(&'b mut self, archetype: &'b QueryableArchetype, component_index: usize) {
         let lock_write_guard = archetype.components[component_index].write().unwrap();
         self.guards.push(lock_write_guard);
     }
 
-    fn iterator(&'a mut self) -> Self::ITERATOR {
+    fn iterator(&'b mut self) -> Self::ITERATOR {
         let iters = self
             .guards
             .iter_mut()
@@ -191,7 +191,7 @@ pub struct ComponentQuery<'a, T: 'a> {
     phantom: std::marker::PhantomData<T>,
 }
 
-impl<'a, T: 'static> ComponentQueryTrait<'a> for ComponentQuery<'a, T> {
+impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a, 'b> for ComponentQuery<'b, T> {
     type ITERATOR = ComponentIter<'a, T>;
     fn new() -> Self {
         Self {
@@ -199,11 +199,11 @@ impl<'a, T: 'static> ComponentQueryTrait<'a> for ComponentQuery<'a, T> {
             phantom: std::marker::PhantomData,
         }
     }
-    fn add_archetype(&'a mut self, archetype: &'a QueryableArchetype, component_index: usize) {
+    fn add_archetype(&'b mut self, archetype: &'b QueryableArchetype, component_index: usize) {
         let lock_read_guard = archetype.components[component_index].read().unwrap();
         self.guards.push(lock_read_guard);
     }
-    fn iterator(&'a mut self) -> Self::ITERATOR {
+    fn iterator(&'b mut self) -> Self::ITERATOR {
         let iters = self
             .guards
             .iter()
