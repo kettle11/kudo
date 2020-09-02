@@ -5,6 +5,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
+mod query;
+use query::*;
+
 #[derive(Copy, Clone)]
 pub struct EntityHandle(usize);
 
@@ -53,8 +56,38 @@ impl QueryableWorld {
         }
     }
 
-    pub fn query<'a, 'b: 'a, Q: QueryBundle<'a>>(&'b mut self) -> Q::ITERATOR {
-        Q::iterator(self)
+    fn get_component_types<B: ComponentBundle>(&mut self) {
+        self.temp_component_types.clear();
+        B::component_ids(&mut self.temp_component_types);
+
+        // This is a bit messy, but the order the components are sorted into must be known.
+        // So what we do here is sort a vec of tuples of the ComponentId and its index by the ComponentId.
+        // This is used to insert components into the correct ComponentStore of the archetype.
+        self.temp_component_types_with_index.clear();
+        // This is extended to avoid an additional allocation.
+        self.temp_component_types_with_index
+            .extend(self.temp_component_types.iter().copied().enumerate());
+
+        self.temp_component_types_with_index
+            .sort_by(|a, b| a.1.cmp(&b.1));
+
+        self.temp_component_types.sort();
+    }
+
+    // Find each matching archetype and store the data into the appropriate queries.
+    pub fn find_matching_archetypes<B: ComponentBundle>(&mut self) {
+        self.get_component_types::<B>();
+        let mut archetype_indices_out = vec![0; self.temp_component_types.len()];
+        for (_, archetype) in self.archetypes.iter().enumerate() {
+            let matches = archetype
+                .matches_components(&self.temp_component_types, &mut archetype_indices_out);
+
+            println!("Matches: {:?} {:?}", matches, archetype_indices_out);
+        }
+    }
+
+    pub fn query<'a, Q: QueryBundle<'a>>(&self) -> Q::QUERY {
+        Q::get_query(self)
     }
 }
 
@@ -199,6 +232,8 @@ impl World {
         let type_id = TypeId::of::<T>();
         let (old_archetype_index, index_in_current_archetype) = self.entities[entity.0];
         let old_archetype = &mut self.archetypes[old_archetype_index];
+
+        // Find where the new component will be inserted into the archetype.
         let new_component_position = old_archetype.type_ids.binary_search(&type_id);
 
         match new_component_position {
@@ -291,113 +326,6 @@ impl World {
         if let Some(entity_moved) = old_archetype.entity_ids.get(entity_index_in_archetype) {
             self.entities[*entity_moved] = (old_archetype_index, entity_index_in_archetype);
         }
-    }
-
-    pub fn find_matching_archetypes<B: ComponentBundle>(&mut self) {
-        self.get_component_types::<B>();
-        let mut archetype_indices_out = vec![0; self.temp_component_types.len()];
-        for (_, archetype) in self.archetypes.iter().enumerate() {
-            let matches = archetype
-                .matches_components(&self.temp_component_types, &mut archetype_indices_out);
-
-            println!("Matches: {:?} {:?}", matches, archetype_indices_out);
-        }
-    }
-}
-
-/// A collection of reference types that will be used to construct a query.
-pub trait QueryBundle<'a> {
-    type ITERATOR: Iterator + 'a;
-    fn iterator(world: &QueryableWorld) -> Self::ITERATOR;
-}
-
-/// An individual reference type in a query
-pub trait QueryParameter<'a> {
-    type ITERATOR: Iterator;
-
-    /// Each query parameter knows what type of Iterator (mut or immutable)
-    /// it wants from an Archetype.
-    fn get_component_iter(index: usize, archetype: &QueryableArchetype) -> Self::ITERATOR;
-}
-
-impl<'a, T: 'static> QueryParameter<'a> for &T {
-    type ITERATOR = std::slice::Iter<'a, T>;
-    fn get_component_iter(index: usize, archetype: &QueryableArchetype) -> Self::ITERATOR {
-        unimplemented!()
-    }
-}
-
-/*
-impl<'a, T: 'static> QueryParameter<'a> for &mut T {
-    type ITERATOR = std::slice::IterMut<'a, T>;
-    fn get_component_iter<'b: 'a>(index: usize, archetype: &'b mut Archetype) -> Self::ITERATOR {
-        archetype.get_component_store_mut(index).iter_mut()
-    }
-}
-*/
-
-use std::iter::Zip;
-
-impl<'a, A: QueryParameter<'a> + 'a> QueryBundle<'a> for (A,) {
-    type ITERATOR = A::ITERATOR;
-    fn iterator(_world: &QueryableWorld) -> Self::ITERATOR {
-        <A as QueryParameter>::get_component_iter(0, &_world.archetypes[0])
-    }
-}
-
-impl<'a, A: QueryParameter<'a> + 'a, B: QueryParameter<'a> + 'a> QueryBundle<'a> for (A, B) {
-    type ITERATOR = Zip<A::ITERATOR, B::ITERATOR>;
-    fn iterator(_world: &QueryableWorld) -> Self::ITERATOR {
-        let a_iter = <A as QueryParameter>::get_component_iter(0, &_world.archetypes[0]);
-        let b_iter = <B as QueryParameter>::get_component_iter(0, &_world.archetypes[1]);
-        a_iter.zip(b_iter)
-    }
-}
-/*
-macro_rules! query_impl {
-    ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl<'a, $($name: QueryParameter<'a> + 'a),*> QueryBundle<'a> for ($($name,)*) {
-            type ITERATOR = std::slice::Iter::<'a, ($($name,) *)>;
-
-            fn iterator(_world: &World) -> Self::ITERATOR {
-                // Find all archetypes that match this QueryBundle.
-                // Get an iterator for each archetype that can be assembled into a QueryIterator
-                unimplemented!()
-            }
-        }
-    };
-}
-
-query_impl! {1, (A, 0)}
-*/
-
-struct ChainedIterator<I: Iterator> {
-    current_iter: I,
-    iterators: Vec<I>,
-}
-
-impl<I: Iterator> ChainedIterator<I> {
-    pub fn new(mut iterators: Vec<I>) -> Self {
-        let current_iter = iterators.pop().unwrap();
-        Self {
-            current_iter,
-            iterators,
-        }
-    }
-}
-
-impl<I: Iterator> Iterator for ChainedIterator<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Chain the iterators together.
-        // If the end of one iterator is reached go to the next.
-        self.current_iter.next().or_else(|| {
-            self.iterators.pop().map_or(None, |i| {
-                self.current_iter = i;
-                self.current_iter.next()
-            })
-        })
     }
 }
 
@@ -492,6 +420,32 @@ impl QueryableArchetype {
 
     fn get_mutable_iter<T: 'static>(&mut self, index: usize) -> &mut Vec<T> {
         unimplemented!()
+    }
+
+    pub fn matches_components(
+        &self,
+        components: &[TypeId],
+        archetype_indices_out: &mut [usize],
+    ) -> bool {
+        let mut component_iter = components.iter().enumerate();
+        let mut component = component_iter.next();
+        for (archetype_index, archetype_component_type) in self.type_ids.iter().enumerate() {
+            if let Some((component_index, component_type)) = component {
+                match archetype_component_type.partial_cmp(component_type) {
+                    // Components are sorted, if we've passed a component
+                    // it can no longer be found.
+                    Some(Ordering::Greater) => return false,
+                    Some(Ordering::Equal) => {
+                        archetype_indices_out[component_index] = archetype_index;
+                        component = component_iter.next();
+                    }
+                    _ => {}
+                }
+            } else {
+                return true;
+            }
+        }
+        component.is_none()
     }
 }
 
@@ -599,32 +553,6 @@ impl Archetype {
     }
     fn replace_component<T: 'static>(&mut self, component_index: usize, entity_index: usize, t: T) {
         self.get_component_store_mut(component_index)[entity_index] = t;
-    }
-
-    pub fn matches_components(
-        &self,
-        components: &[TypeId],
-        archetype_indices_out: &mut [usize],
-    ) -> bool {
-        let mut component_iter = components.iter().enumerate();
-        let mut component = component_iter.next();
-        for (archetype_index, archetype_component_type) in self.type_ids.iter().enumerate() {
-            if let Some((component_index, component_type)) = component {
-                match archetype_component_type.partial_cmp(component_type) {
-                    // Components are sorted, if we've passed a component
-                    // it can no longer be found.
-                    Some(Ordering::Greater) => return false,
-                    Some(Ordering::Equal) => {
-                        archetype_indices_out[component_index] = archetype_index;
-                        component = component_iter.next();
-                    }
-                    _ => {}
-                }
-            } else {
-                return true;
-            }
-        }
-        component.is_none()
     }
 }
 
