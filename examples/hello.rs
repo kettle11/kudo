@@ -13,7 +13,7 @@ fn main() {
     world.spawn((A {},));
     world.spawn((A {}, B {}));
 
-    let mut q = world.query::<(&C,)>();
+    let mut q = world.query::<(&A,)>();
     for i in q.iterator() {
         println!("i: {:?}", i);
     }

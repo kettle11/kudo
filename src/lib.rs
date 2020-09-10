@@ -9,9 +9,24 @@ pub struct Archetype {
     type_ids: Vec<TypeId>,
     // The dyn Any is a Vec of T where T is this archetype's component type
     components: Vec<ComponentStore>,
+    length: usize,
 }
 
-pub struct ComponentStore(UnsafeCell<Box<dyn Any>>);
+trait ComponentStoreInner {
+    fn to_any(&self) -> &dyn Any;
+    fn to_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: 'static> ComponentStoreInner for Vec<T> {
+    fn to_any(&self) -> &dyn Any {
+        self
+    }
+    fn to_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+pub struct ComponentStore(UnsafeCell<Box<dyn ComponentStoreInner>>);
 
 impl ComponentStore {
     pub fn new<T: 'static>() -> Self {
@@ -21,6 +36,7 @@ impl ComponentStore {
 impl Archetype {
     unsafe fn add_component<T: 'static>(&mut self, index: usize, t: T) {
         (*self.components[index].0.get())
+            .to_any_mut()
             .downcast_mut::<Vec<T>>()
             .unwrap()
             .push(t);
@@ -29,116 +45,24 @@ impl Archetype {
 
 pub struct EntityLocation {
     #[allow(dead_code)]
-    archetype: usize,
+    generation: u32,
     #[allow(dead_code)]
-    component: usize,
+    archetype: u32,
+    #[allow(dead_code)]
+    index_in_archetype: u32,
+}
+
+/// A unique per entity identifier.
+pub struct Entity {
+    index: u32,
+    generation: u32,
 }
 
 pub struct World {
     archetypes: Vec<Archetype>,
     archetype_id_to_index: HashMap<u64, usize>,
     entities: Vec<EntityLocation>,
-}
-
-pub trait ComponentQueryTrait<'a> {
-    type Iterator: Iterator;
-    fn new() -> Self;
-    fn iterator(&'a mut self) -> Self::Iterator;
-    fn add_component_store(&mut self, component_store: &ComponentStore);
-}
-
-pub struct ComponentQuery<'a, T> {
-    components: Vec<&'a Box<dyn Any>>,
-    phantom: std::marker::PhantomData<T>,
-}
-
-impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for ComponentQuery<'b, T> {
-    type Iterator = ChainedIterator<std::slice::Iter<'a, T>>;
-    fn new() -> Self {
-        Self {
-            components: Vec::new(),
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    fn iterator(&mut self) -> Self::Iterator {
-        ChainedIterator::new(if self.components.len() > 0 {
-            self.components
-                .iter()
-                .map(|i| i.downcast_ref::<Vec<T>>().unwrap().iter())
-                .collect()
-        } else {
-            vec![[].iter()] // An empty iterator
-        })
-    }
-
-    fn add_component_store(&mut self, component_store: &ComponentStore) {
-        unsafe { self.components.push(&*component_store.0.get()) }
-    }
-}
-
-pub struct MutableComponentQuery<'a, T> {
-    components: Vec<&'a mut Box<dyn Any>>,
-    phantom: std::marker::PhantomData<T>,
-}
-
-impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for MutableComponentQuery<'b, T> {
-    type Iterator = ChainedIterator<std::slice::IterMut<'a, T>>;
-    fn new() -> Self {
-        Self {
-            components: Vec::new(),
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    fn iterator(&'a mut self) -> Self::Iterator {
-        ChainedIterator::new(if self.components.len() > 0 {
-            self.components
-                .iter_mut()
-                .map(|i| i.downcast_mut::<Vec<T>>().unwrap().iter_mut())
-                .collect()
-        } else {
-            vec![[].iter_mut()] // An empty iterator
-        })
-    }
-
-    fn add_component_store(&mut self, component_store: &ComponentStore) {
-        unsafe { self.components.push(&mut *component_store.0.get()) }
-    }
-}
-
-pub trait QueryParam<'a> {
-    type ComponentQuery: ComponentQueryTrait<'a>;
-    fn type_id() -> TypeId;
-}
-
-// Is it OK to use the lifetime for T here?
-impl<'a, T: 'static> QueryParam<'a> for &T {
-    type ComponentQuery = ComponentQuery<'a, T>;
-    fn type_id() -> TypeId {
-        TypeId::of::<T>()
-    }
-}
-
-// Is it OK to use the lifetime for T here?
-impl<'a, T: 'static> QueryParam<'a> for &mut T {
-    type ComponentQuery = MutableComponentQuery<'a, T>;
-    fn type_id() -> TypeId {
-        TypeId::of::<T>()
-    }
-}
-
-pub trait QueryParams<'a> {
-    type Query: Query<'a>;
-    fn type_ids() -> Vec<TypeId>;
-    fn type_ids_unsorted() -> Vec<TypeId>;
-}
-
-pub trait Query<'a> {
-    type Iterator: Iterator;
-    fn new() -> Self;
-    fn add_archetype(&mut self, archetype: &Archetype, indices: &[usize]);
-    fn iterator(&'a mut self) -> Self::Iterator;
+    free_entity_ids: Vec<u32>,
 }
 
 impl World {
@@ -147,7 +71,27 @@ impl World {
             archetypes: Vec::new(),
             archetype_id_to_index: HashMap::new(),
             entities: Vec::new(),
+            free_entity_ids: Vec::new(),
         }
+    }
+
+    pub fn remove_entity(&mut self, entity: Entity) -> Result<(), ()> {
+        let location = &self.entities[entity.index as usize];
+        unimplemented!()
+        /*
+        if location.generation == entity.generation {
+        } else {
+            Err(())
+        }
+        */
+    }
+
+    pub fn add_component<T>(&mut self, entity: Entity, t: T) {
+        unimplemented!()
+    }
+
+    pub fn remove_component<T>(&mut self, entity: Entity, t: T) {
+        unimplemented!()
     }
 
     pub fn query<'a, Q: QueryParams<'a>>(&self) -> Q::Query {
@@ -202,7 +146,7 @@ impl World {
         query
     }
 
-    pub fn spawn<B: ComponentBundle>(&mut self, b: B) -> EntityId {
+    pub fn spawn<B: ComponentBundle>(&mut self, b: B) -> Entity {
         let archetype_id = B::archetype_id();
         let archetype_index = self
             .archetype_id_to_index
@@ -218,15 +162,131 @@ impl World {
 
         let archetype = &mut self.archetypes[archetype_index];
         b.add_to_archetype(archetype);
-        self.entities.push(EntityLocation {
-            archetype: archetype_index,
-            component: 0,
-        });
-        EntityId(self.entities.len() - 1)
+        let index_in_archetype = archetype.length as u32;
+
+        let free_id = self.free_entity_ids.pop();
+        if let Some(index) = free_id {
+            let generation = self.entities[index as usize].generation + 1;
+            self.entities[index as usize] = EntityLocation {
+                archetype: archetype_index as u32,
+                generation,
+                index_in_archetype,
+            };
+            Entity { index, generation }
+        } else {
+            self.entities.push(EntityLocation {
+                archetype: archetype_index as u32,
+                generation: 0,
+                index_in_archetype,
+            });
+            Entity {
+                index: (self.entities.len() - 1) as u32,
+                generation: 0,
+            }
+        }
     }
 }
 
-pub struct EntityId(usize);
+pub trait ComponentQueryTrait<'a> {
+    type Iterator: Iterator;
+    fn new() -> Self;
+    fn iterator(&'a mut self) -> Self::Iterator;
+    fn add_component_store(&mut self, component_store: &ComponentStore);
+}
+
+pub struct ComponentQuery<'a, T> {
+    components: Vec<&'a Box<dyn ComponentStoreInner>>,
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for ComponentQuery<'b, T> {
+    type Iterator = ChainedIterator<std::slice::Iter<'a, T>>;
+    fn new() -> Self {
+        Self {
+            components: Vec::new(),
+            phantom: std::marker::PhantomData,
+        }
+    }
+
+    fn iterator(&mut self) -> Self::Iterator {
+        ChainedIterator::new(if self.components.len() > 0 {
+            self.components
+                .iter()
+                .map(|i| i.to_any().downcast_ref::<Vec<T>>().unwrap().iter())
+                .collect()
+        } else {
+            vec![[].iter()] // An empty iterator
+        })
+    }
+
+    fn add_component_store(&mut self, component_store: &ComponentStore) {
+        unsafe { self.components.push(&*component_store.0.get()) }
+    }
+}
+
+pub struct MutableComponentQuery<'a, T> {
+    components: Vec<&'a mut Box<dyn ComponentStoreInner>>,
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for MutableComponentQuery<'b, T> {
+    type Iterator = ChainedIterator<std::slice::IterMut<'a, T>>;
+    fn new() -> Self {
+        Self {
+            components: Vec::new(),
+            phantom: std::marker::PhantomData,
+        }
+    }
+
+    fn iterator(&'a mut self) -> Self::Iterator {
+        ChainedIterator::new(if self.components.len() > 0 {
+            self.components
+                .iter_mut()
+                .map(|i| i.to_any_mut().downcast_mut::<Vec<T>>().unwrap().iter_mut())
+                .collect()
+        } else {
+            vec![[].iter_mut()] // An empty iterator
+        })
+    }
+
+    fn add_component_store(&mut self, component_store: &ComponentStore) {
+        unsafe { self.components.push(&mut *component_store.0.get()) }
+    }
+}
+
+pub trait QueryParam<'a> {
+    type ComponentQuery: ComponentQueryTrait<'a>;
+    fn type_id() -> TypeId;
+}
+
+// Is it OK to use the lifetime for T here?
+impl<'a, T: 'static> QueryParam<'a> for &T {
+    type ComponentQuery = ComponentQuery<'a, T>;
+    fn type_id() -> TypeId {
+        TypeId::of::<T>()
+    }
+}
+
+// Is it OK to use the lifetime for T here?
+impl<'a, T: 'static> QueryParam<'a> for &mut T {
+    type ComponentQuery = MutableComponentQuery<'a, T>;
+    fn type_id() -> TypeId {
+        TypeId::of::<T>()
+    }
+}
+
+pub trait QueryParams<'a> {
+    type Query: Query<'a>;
+    fn type_ids() -> Vec<TypeId>;
+    fn type_ids_unsorted() -> Vec<TypeId>;
+}
+
+pub trait Query<'a> {
+    type Iterator: Iterator;
+    fn new() -> Self;
+    fn add_archetype(&mut self, archetype: &Archetype, indices: &[usize]);
+    fn iterator(&'a mut self) -> Self::Iterator;
+}
 
 pub trait ComponentBundle {
     fn archetype_id() -> u64;
@@ -295,7 +355,8 @@ macro_rules! component_bundle_impl {
                 data.sort_unstable_by(|(id0, _), (id1, _)| id0.cmp(&id1));
                 Archetype {
                     type_ids: data.iter().map(|(id, _)| *id).collect(),
-                    components: data.iter_mut().map(|(_, component_store)| component_store.take().unwrap()).collect()
+                    components: data.iter_mut().map(|(_, component_store)| component_store.take().unwrap()).collect(),
+                    length: 0
                 }
             }
 
@@ -305,6 +366,7 @@ macro_rules! component_bundle_impl {
                 unsafe {
                     $(archetype.add_component(component_ordering[$index].0, self.$index);)*
                 }
+                archetype.length += 1;
             }
         }
     };
