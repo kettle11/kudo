@@ -62,12 +62,14 @@ impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for ComponentQuery<'b, T> {
     }
 
     fn iterator(&mut self) -> Self::Iterator {
-        ChainedIterator::new(
+        ChainedIterator::new(if self.components.len() > 0 {
             self.components
                 .iter()
                 .map(|i| i.downcast_ref::<Vec<T>>().unwrap().iter())
-                .collect(),
-        )
+                .collect()
+        } else {
+            vec![[].iter()] // An empty iterator
+        })
     }
 
     fn add_component_store(&mut self, component_store: &ComponentStore) {
@@ -90,12 +92,14 @@ impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for MutableComponentQuery<'
     }
 
     fn iterator(&'a mut self) -> Self::Iterator {
-        ChainedIterator::new(
+        ChainedIterator::new(if self.components.len() > 0 {
             self.components
                 .iter_mut()
                 .map(|i| i.downcast_mut::<Vec<T>>().unwrap().iter_mut())
-                .collect(),
-        )
+                .collect()
+        } else {
+            vec![[].iter_mut()] // An empty iterator
+        })
     }
 
     fn add_component_store(&mut self, component_store: &ComponentStore) {
@@ -306,8 +310,6 @@ macro_rules! component_bundle_impl {
     };
 }
 
-pub struct QueryIterator<T>(T);
-
 component_bundle_impl! {1, (A, 0)}
 component_bundle_impl! {2, (A, 0), (B, 1)}
 component_bundle_impl! {3, (A, 0), (B, 1), (C, 2)}
@@ -316,6 +318,8 @@ component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
 component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
 component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
 component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
+
+pub struct QueryIterator<T>(T);
 
 pub struct ChainedIterator<I: Iterator> {
     current_iter: I,

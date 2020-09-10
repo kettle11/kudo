@@ -1,11 +1,19 @@
 use kudo::*;
 
+#[derive(Debug)]
+struct A {}
+#[derive(Debug)]
+struct B {}
+
+#[derive(Debug)]
+struct C {}
+
 fn main() {
     let mut world = World::new();
-    world.spawn((true,));
-    world.spawn((false, 10.));
+    world.spawn((A {},));
+    world.spawn((A {}, B {}));
 
-    let mut q = world.query::<(&bool,)>();
+    let mut q = world.query::<(&C,)>();
     for i in q.iterator() {
         println!("i: {:?}", i);
     }
