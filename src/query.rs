@@ -24,7 +24,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 // Then those associated types need to be bundled together into a final query.
 // Potentially as part of the bundle's macro.
 
-trait Query<'a, 'b: 'a> {
+pub trait Query<'a, 'b: 'a> {
     type ITERATOR: Iterator;
     fn iterator(&'b mut self) -> Self::ITERATOR;
 }
@@ -42,10 +42,10 @@ macro_rules! query_impl {
 }
 
 // Manual implementation for a query of one item
-impl<'a, 'b: 'a, A: ComponentQueryTrait<'a, 'b>> Query<'a, 'b> for A {
+impl<'a, 'b: 'a, A: ComponentQueryTrait<'a, 'b>> Query<'a, 'b> for (A,) {
     type ITERATOR = A::ITERATOR;
     fn iterator(&'b mut self) -> Self::ITERATOR {
-        self.iterator()
+        self.0.iterator()
     }
 }
 
@@ -59,6 +59,8 @@ impl<'a, 'b: 'a, A: ComponentQueryTrait<'a, 'b>, B: ComponentQueryTrait<'a, 'b>>
     }
 }
 
+/*
+
 query_impl! {3, (A, 0), (B, 1), (C, 2)}
 query_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
 query_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
@@ -66,11 +68,11 @@ query_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
 query_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
 query_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
 query_impl! {9, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8)}
-
+*/
 /// QueryBundle defines a collection of QueryParams that can be used to construct a Query.
 /// A query bundle defines how to construct its query.
 /// Each of its sub-QueryParams define how to construct their individual component queries.
-pub trait QueryBundle<'a> {
+pub trait QueryBundle<'a, 'b> {
     type QUERY;
     fn component_ids() -> Vec<TypeId>;
     fn get_query(world: &QueryableWorld) -> Self::QUERY;
@@ -78,7 +80,7 @@ pub trait QueryBundle<'a> {
 
 macro_rules! query_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl<'a, $($name: QueryParam<'a> + 'static),*> QueryBundle<'a> for ($($name,)*) {
+        impl<'a,'b: 'a, $($name: QueryParam<'a, 'b> + 'static),*> QueryBundle<'a, 'b> for ($($name,)*) {
             type QUERY = ($($name::ComponentQuery,)*);
 
             fn component_ids() -> Vec<TypeId> {
@@ -93,16 +95,22 @@ macro_rules! query_bundle_impl {
                 let mut archetype_indices_out = vec![0; $count];
 
               //  let component_queries = [$($name::get_com()), *]
+                let mut component_queries = ($($name::ComponentQuery::new(),) *);
+                /*
                 for archetype in world.archetypes.iter() {
                     let matches = archetype
                         .matches_components(&ids, &mut archetype_indices_out);
 
+                    // This needs an additional layer of indirection.
+                    $(component_queries.$index.add_archetype(archetype, archetype_indices_out[$index]);)*
                     println!("Matches: {:?} {:?}", matches, archetype_indices_out);
                 }
 
                 // Search the world for archetypes that match this query and update individual component
                 // queries with the correct data.
                 unimplemented!()
+                }*/
+                component_queries
             }
         }
     };
@@ -120,14 +128,14 @@ query_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (
 query_bundle_impl! {9, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8)}
 */
 /// Part of a query bundle
-pub trait QueryParam<'a> {
-    type ComponentQuery;
+pub trait QueryParam<'a, 'b: 'a> {
+    type ComponentQuery: ComponentQueryTrait<'a, 'b>;
     fn type_id() -> TypeId;
     fn get_component_query(archetypes: &Vec<QueryableArchetype>) -> Self::ComponentQuery;
 }
 
-impl<'a, T: 'static> QueryParam<'a> for &T {
-    type ComponentQuery = ComponentQuery<'a, T>;
+impl<'a, 'b: 'a, T: 'static> QueryParam<'a, 'b> for &T {
+    type ComponentQuery = ComponentQuery<'b, T>;
     fn type_id() -> TypeId {
         TypeId::of::<T>()
     }
@@ -138,8 +146,8 @@ impl<'a, T: 'static> QueryParam<'a> for &T {
     }
 }
 
-impl<'a, T: 'static> QueryParam<'a> for &mut T {
-    type ComponentQuery = MutableComponentQuery<'a, T>;
+impl<'a, 'b: 'a, T: 'static> QueryParam<'a, 'b> for &mut T {
+    type ComponentQuery = MutableComponentQuery<'b, T>;
     fn type_id() -> TypeId {
         TypeId::of::<T>()
     }
@@ -290,7 +298,7 @@ fn unwrap_unchecked<T>(item: Option<T>) -> T {
     }
 }
 */
-struct QueryIterator<T>(T);
+pub struct QueryIterator<T>(T);
 
 macro_rules! iterator_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {

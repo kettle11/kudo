@@ -4,9 +4,10 @@ use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::RwLock;
 
 mod query;
-use query::*;
+pub use query::*;
 
 #[derive(Copy, Clone)]
 pub struct EntityHandle(usize);
@@ -86,7 +87,7 @@ impl QueryableWorld {
         }
     }
 
-    pub fn query<'a, Q: QueryBundle<'a>>(&self) -> Q::QUERY {
+    pub fn query<'a, 'b: 'a, Q: QueryBundle<'a, 'b>>(&self) -> Q::QUERY {
         Q::get_query(self)
     }
 }
@@ -387,8 +388,6 @@ impl<T: 'static> ComponentStore for Vec<T> {
         Box::new(Vec::<T>::new())
     }
 }
-
-use std::sync::RwLock;
 
 /// A queryable archetype is an archetype where its individual component stores are protected
 /// with RwLocks to allow queries to borrow only parts of an archetype.
