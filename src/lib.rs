@@ -9,12 +9,14 @@ pub struct Archetype {
     type_ids: Vec<TypeId>,
     // The dyn Any is a Vec of T where T is this archetype's component type
     components: Vec<ComponentStore>,
+    entity_indices: Vec<usize>,
     length: usize,
 }
 
 trait ComponentStoreInner {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
+    fn remove(&mut self, index: usize);
 }
 
 impl<T: 'static> ComponentStoreInner for Vec<T> {
@@ -23,6 +25,10 @@ impl<T: 'static> ComponentStoreInner for Vec<T> {
     }
     fn to_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn remove(&mut self, index: usize) {
+        self.swap_remove(index);
     }
 }
 
@@ -53,6 +59,7 @@ pub struct EntityLocation {
 }
 
 /// A unique per entity identifier.
+#[derive(Clone, Copy)]
 pub struct Entity {
     index: u32,
     generation: u32,
@@ -65,6 +72,11 @@ pub struct World {
     free_entity_ids: Vec<u32>,
 }
 
+#[derive(Debug)]
+pub enum EntityError {
+    AlreadyRemoved,
+}
+
 impl World {
     pub fn new() -> Self {
         Self {
@@ -75,15 +87,39 @@ impl World {
         }
     }
 
-    pub fn remove_entity(&mut self, entity: Entity) -> Result<(), ()> {
-        let location = &self.entities[entity.index as usize];
-        unimplemented!()
-        /*
+    pub fn remove_entity(&mut self, entity: Entity) -> Result<(), EntityError> {
+        let location = &self
+            .entities
+            .get(entity.index as usize)
+            .ok_or(EntityError::AlreadyRemoved)?;
+
+        // If the generations do not match then this entity has already been removed
         if location.generation == entity.generation {
+            let archetype = &mut self.archetypes[location.archetype as usize];
+
+            // Remove the entity from each of the archetype's components.
+            for component_store in archetype.components.iter_mut() {
+                unsafe {
+                    (*component_store.0.get()).remove(location.index_in_archetype as usize);
+                }
+            }
+
+            // When each ComponentStore removes a component it swaps the last item in the store to the
+            // removed index. The world's "index_in_archetype" for the entity must be updated to reflect that.
+            let swapped_entity = *archetype.entity_indices.last().unwrap();
+            archetype
+                .entity_indices
+                .swap_remove(location.index_in_archetype as usize);
+            self.entities[swapped_entity].index_in_archetype = location.index_in_archetype;
+
+            // Increment the generation to avoid a double remove being OK.
+            self.entities[entity.index as usize].generation += 1;
+
+            self.free_entity_ids.push(entity.index);
+            Ok(())
         } else {
-            Err(())
+            Err(EntityError::AlreadyRemoved)
         }
-        */
     }
 
     pub fn add_component<T>(&mut self, entity: Entity, t: T) {
@@ -94,7 +130,8 @@ impl World {
         unimplemented!()
     }
 
-    pub fn query<'a, Q: QueryParams<'a>>(&self) -> Q::Query {
+    /// This is unsafe for now because queries can overlap
+    pub unsafe fn query<'a, Q: QueryParams<'a>>(&'a self) -> Q::Query {
         let mut id_and_index: Vec<(usize, TypeId)> =
             Q::type_ids_unsorted().iter().copied().enumerate().collect();
         id_and_index.sort_unstable_by(|a, b| a.1.cmp(&b.1));
@@ -160,12 +197,10 @@ impl World {
                 archetype_index
             });
 
-        let archetype = &mut self.archetypes[archetype_index];
-        b.add_to_archetype(archetype);
-        let index_in_archetype = archetype.length as u32;
+        let index_in_archetype = self.archetypes[archetype_index].length as u32;
 
         let free_id = self.free_entity_ids.pop();
-        if let Some(index) = free_id {
+        let entity = if let Some(index) = free_id {
             let generation = self.entities[index as usize].generation + 1;
             self.entities[index as usize] = EntityLocation {
                 archetype: archetype_index as u32,
@@ -183,7 +218,11 @@ impl World {
                 index: (self.entities.len() - 1) as u32,
                 generation: 0,
             }
-        }
+        };
+
+        let archetype = &mut self.archetypes[archetype_index];
+        b.add_to_archetype(entity.index as usize, archetype);
+        entity
     }
 }
 
@@ -291,7 +330,7 @@ pub trait Query<'a> {
 pub trait ComponentBundle {
     fn archetype_id() -> u64;
     fn new_archetype() -> Archetype;
-    fn add_to_archetype(self, archetype: &mut Archetype);
+    fn add_to_archetype(self, index: usize, archetype: &mut Archetype);
     fn type_ids_and_order(ids_and_order: &mut [(usize, TypeId)]);
 }
 
@@ -356,16 +395,18 @@ macro_rules! component_bundle_impl {
                 Archetype {
                     type_ids: data.iter().map(|(id, _)| *id).collect(),
                     components: data.iter_mut().map(|(_, component_store)| component_store.take().unwrap()).collect(),
-                    length: 0
+                    length: 0,
+                    entity_indices: Vec::new(),
                 }
             }
 
-            fn add_to_archetype(self, archetype: &mut Archetype) {
+            fn add_to_archetype(self, index: usize, archetype: &mut Archetype) {
                 let mut component_ordering = [(0, TypeId::of::<()>()); $count];
                 Self::type_ids_and_order(&mut component_ordering);
                 unsafe {
                     $(archetype.add_component(component_ordering[$index].0, self.$index);)*
                 }
+                archetype.entity_indices.push(index);
                 archetype.length += 1;
             }
         }

@@ -10,10 +10,14 @@ struct C {}
 
 fn main() {
     let mut world = World::new();
-    world.spawn((A {},));
+    let a = world.spawn((A {},));
+    world.spawn((A {}, B {}));
+    world.remove_entity(a).unwrap();
+
     world.spawn((A {}, B {}));
 
-    let mut q = world.query::<(&A,)>();
+    let mut q = unsafe { world.query::<(&A,)>() };
+
     for i in q.iterator() {
         println!("i: {:?}", i);
     }
