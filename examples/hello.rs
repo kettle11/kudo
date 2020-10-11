@@ -1,24 +1,23 @@
 use kudo::*;
 
 #[derive(Debug)]
-struct A {}
+struct A(f32);
 #[derive(Debug)]
-struct B {}
+struct B(f32);
 
 #[derive(Debug)]
-struct C {}
+struct C(f32);
 
 fn main() {
     let mut world = World::new();
-    let a = world.spawn((A {},));
-    world.spawn((A {}, B {}));
-    world.despawn(a).unwrap();
 
-    world.spawn((A {}, B {}));
+    let entities: Vec<Entity> = (0..10_000).map(|_| world.spawn((A(0.0),))).collect();
 
-    let mut q = world.query::<(&A,)>();
+    for entity in entities.iter() {
+        world.add_component(*entity, B(0.0)).unwrap();
+    }
 
-    for i in q.iter() {
-        println!("i: {:?}", i);
+    for entity in entities.iter() {
+        world.remove_component::<B>(*entity).unwrap();
     }
 }

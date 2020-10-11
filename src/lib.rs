@@ -368,6 +368,104 @@ impl World {
         }
     }
 
+    pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Result<T, ()> {
+        let entity_info = self.entities[entity.index as usize];
+
+        if entity_info.generation == entity.generation {
+            let current_archetype = &self.archetypes[entity_info.location.archetype_index as usize];
+
+            let type_id = TypeId::of::<T>();
+            let mut type_ids: Vec<TypeId> = current_archetype
+                .components
+                .iter()
+                .map(|c| c.type_id)
+                .collect();
+            let binary_search_index = type_ids.binary_search(&type_id);
+
+            if let Ok(remove_index) = binary_search_index {
+                type_ids.remove(remove_index);
+                let bundle_id = calculate_bundle_id(&type_ids);
+                let new_archetype_index = if let Some(new_archetype_index) =
+                    self.bundle_id_to_archetype.get(&bundle_id)
+                {
+                    *new_archetype_index
+                } else {
+                    // Create a new archetype
+                    let mut archetype = Archetype::new();
+                    for c in current_archetype.components.iter() {
+                        if c.type_id != type_id {
+                            archetype.components.push(c.new_same_type());
+                        }
+                    }
+
+                    let new_archetype_index = self.archetypes.len();
+
+                    self.bundle_id_to_archetype
+                        .insert(bundle_id, new_archetype_index);
+                    self.archetypes.push(archetype);
+                    new_archetype_index
+                };
+
+                // Much of this code is similar to the code for adding a component.
+
+                // index_twice lets us mutably borrow from the world twice.
+                let (old_archetype, new_archetype) = index_twice(
+                    &mut self.archetypes,
+                    entity_info.location.archetype_index as usize,
+                    new_archetype_index,
+                );
+
+                // If an entity is being moved then update its location
+                if let Some(last) = old_archetype.entities.last() {
+                    self.entities[*last as usize].location = entity_info.location;
+                }
+
+                // First update the entity's location to reflect the changes about to be made.
+                self.entities[entity.index as usize].location = EntityLocation {
+                    archetype_index: new_archetype_index as EntityId,
+                    index_in_archetype: (new_archetype.len()) as EntityId,
+                };
+
+                // The new archetype is the same as the old one but with one fewer components.
+                for i in 0..remove_index {
+                    old_archetype.migrate_component(
+                        i,
+                        entity_info.location.index_in_archetype,
+                        new_archetype,
+                        i,
+                    );
+                }
+
+                let components_in_archetype = old_archetype.components.len();
+
+                for i in (remove_index + 1)..components_in_archetype {
+                    old_archetype.migrate_component(
+                        i,
+                        entity_info.location.index_in_archetype,
+                        new_archetype,
+                        i - 1,
+                    );
+                }
+
+                old_archetype
+                    .entities
+                    .swap_remove(entity_info.location.index_in_archetype as usize);
+                new_archetype.entities.push(entity.index);
+
+                Ok(
+                    component_vec_to_mut::<T>(&mut *old_archetype.components[remove_index].data)
+                        .swap_remove(entity_info.location.index_in_archetype as usize),
+                )
+            } else {
+                // Component is not in entity
+                Err(())
+            }
+        } else {
+            // Entity is not in world
+            Err(())
+        }
+    }
+
     /// Adds a component to an entity.
     /// If the component already exists its data will be replaced.
     pub fn add_component<T: 'static>(&mut self, entity: Entity, t: T) -> Result<(), ()> {
@@ -376,10 +474,11 @@ impl World {
         // When a component is added the entity can be either migrated to a brand new archetype
         // or migrated to an existing archetype.
 
-        let type_id = TypeId::of::<T>();
         // First find if the entity exists
         let entity_info = self.entities[entity.index as usize];
         if entity_info.generation == entity.generation {
+            let type_id = TypeId::of::<T>();
+
             // First check if the component already exists for this entity.
             let current_archetype = &self.archetypes[entity_info.location.archetype_index as usize];
 
@@ -414,11 +513,11 @@ impl World {
                     self.bundle_id_to_archetype.get(&bundle_id)
                 {
                     // Found an existing archetype to migrate data to
-                    println!("Found matching archetype for component addition");
+                    // println!("Found matching archetype for component addition");
                     *new_archetype_index
                 } else {
                     // Create a new archetype with the structure of the current archetype and one additional component.
-                    println!("Creating new archetype");
+                    // println!("Creating new archetype");
                     let mut archetype = Archetype::new();
                     for c in current_archetype.components.iter() {
                         archetype.components.push(c.new_same_type());
@@ -436,11 +535,12 @@ impl World {
                     new_archetype_index
                 };
 
-                // This split_as_mut lets us mutably borrow from the world twice.
-                let (split0, split1) = self.archetypes.split_at_mut((new_archetype_index) as usize);
-
-                let old_archetype = &mut split0[entity_info.location.archetype_index as usize];
-                let new_archetype = &mut split1[0];
+                // index_twice lets us mutably borrow from the world twice.
+                let (old_archetype, new_archetype) = index_twice(
+                    &mut self.archetypes,
+                    entity_info.location.archetype_index as usize,
+                    new_archetype_index,
+                );
 
                 // If an entity is being moved then update its location
                 if let Some(last) = old_archetype.entities.last() {
@@ -457,7 +557,7 @@ impl World {
                 for i in 0..insert_index {
                     old_archetype.migrate_component(
                         i,
-                        entity_info.location.archetype_index,
+                        entity_info.location.index_in_archetype,
                         new_archetype,
                         i,
                     );
@@ -655,3 +755,13 @@ component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
 component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
 component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
 component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
+
+fn index_twice<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, &mut T) {
+    if first < second {
+        let (a, b) = slice.split_at_mut(second);
+        (&mut a[first], &mut b[0])
+    } else {
+        let (a, b) = slice.split_at_mut(first);
+        (&mut b[0], &mut a[second])
+    }
+}
