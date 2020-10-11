@@ -1,25 +1,21 @@
-use core::cell::UnsafeCell;
 use std::any::{Any, TypeId};
-use std::cmp::Ordering;
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-pub struct Archetype {
-    // Sorted type IDs
-    type_ids: Vec<TypeId>,
-    // The dyn Any is a Vec of T where T is this archetype's component type
-    components: Vec<ComponentStore>,
-    entity_indices: Vec<usize>,
-    length: usize,
-}
+// This can be used to easily change the size of an EntityId.
+type EntityId = u32;
 
-trait ComponentStoreInner {
+trait ComponentVec {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
-    fn remove(&mut self, index: usize);
+    fn len(&mut self) -> usize;
+    fn swap_remove(&mut self, index: EntityId);
+    fn migrate(&mut self, entity_index: EntityId, other_archetype: &mut dyn ComponentVec);
+    fn new_same_type(&self) -> Box<dyn ComponentVec>;
 }
 
-impl<T: 'static> ComponentStoreInner for Vec<T> {
+impl<T: 'static> ComponentVec for RwLock<Vec<T>> {
     fn to_any(&self) -> &dyn Any {
         self
     }
@@ -27,402 +23,491 @@ impl<T: 'static> ComponentStoreInner for Vec<T> {
         self
     }
 
-    fn remove(&mut self, index: usize) {
-        self.swap_remove(index);
+    fn len(&mut self) -> usize {
+        // Perhaps this call to read incurs unnecessary overhead.
+        self.get_mut().unwrap().len()
+    }
+
+    fn swap_remove(&mut self, index: EntityId) {
+        self.get_mut().unwrap().swap_remove(index as usize);
+    }
+
+    fn migrate(&mut self, entity_index: EntityId, other_component_vec: &mut dyn ComponentVec) {
+        let data: T = self.get_mut().unwrap().swap_remove(entity_index as usize);
+        component_vec_to_mut(other_component_vec).push(data);
+    }
+
+    fn new_same_type(&self) -> Box<dyn ComponentVec> {
+        Box::new(RwLock::new(Vec::<T>::new()))
     }
 }
 
-pub struct ComponentStore(UnsafeCell<Box<dyn ComponentStoreInner>>);
+// This could be made unchecked in the future if there's a high degree of confidence in everything else.
+fn component_vec_to_mut<T: 'static>(c: &mut dyn ComponentVec) -> &mut Vec<T> {
+    c.to_any_mut()
+        .downcast_mut::<RwLock<Vec<T>>>()
+        .unwrap()
+        .get_mut()
+        .unwrap()
+}
+
+/// Stores components for a component type
+struct ComponentStore {
+    type_id: TypeId,
+    data: Box<dyn ComponentVec>,
+}
 
 impl ComponentStore {
     pub fn new<T: 'static>() -> Self {
-        Self(UnsafeCell::new(Box::new(Vec::<T>::new())))
+        Self {
+            type_id: TypeId::of::<T>(),
+            data: Box::new(RwLock::new(Vec::<T>::new())),
+        }
+    }
+
+    /// Creates a new ComponentStore with the same internal storage type
+    pub fn new_same_type(&self) -> Self {
+        Self {
+            type_id: self.type_id,
+            data: self.data.new_same_type(),
+        }
+    }
+
+    pub fn len(&mut self) -> usize {
+        self.data.len()
     }
 }
+
+pub struct Archetype {
+    entities: Vec<EntityId>,
+    components: Vec<ComponentStore>,
+}
+
 impl Archetype {
-    unsafe fn add_component<T: 'static>(&mut self, index: usize, t: T) {
-        (*self.components[index].0.get())
-            .to_any_mut()
-            .downcast_mut::<Vec<T>>()
+    pub fn new() -> Self {
+        Self {
+            entities: Vec::new(),
+            components: Vec::new(),
+        }
+    }
+    pub fn get<T: 'static>(&self, index: usize) -> &RwLock<Vec<T>> {
+        self.components[index]
+            .data
+            .to_any()
+            .downcast_ref::<RwLock<Vec<T>>>()
             .unwrap()
-            .push(t);
+    }
+
+    /// Returns the index of the entity moved
+    fn remove_entity(&mut self, index: EntityId) -> EntityId {
+        for c in self.components.iter_mut() {
+            c.data.swap_remove(index)
+        }
+
+        let moved = *self.entities.last().unwrap();
+        self.entities.swap_remove(index as usize);
+        moved
+    }
+
+    fn mutable_component_store<T: 'static>(&mut self, component_index: usize) -> &mut Vec<T> {
+        component_vec_to_mut(&mut *self.components[component_index].data)
+    }
+
+    fn replace_component<T: 'static>(&mut self, component_index: usize, index: EntityId, t: T) {
+        self.mutable_component_store(component_index)[index as usize] = t;
+    }
+
+    fn push<T: 'static>(&mut self, component_index: usize, t: T) {
+        self.mutable_component_store(component_index).push(t)
+    }
+
+    /// Removes the component from an entity and pushes it to the other archetype
+    /// The type does not need to be known to call this function.
+    /// But the types of component_index and other_index need to match.
+    fn migrate_component(
+        &mut self,
+        component_index: usize,
+        entity_index: EntityId,
+        other_archetype: &mut Archetype,
+        other_index: usize,
+    ) {
+        self.components[component_index].data.migrate(
+            entity_index,
+            &mut *other_archetype.components[other_index].data,
+        );
+    }
+
+    /// This takes a mutable reference so that the inner RwLock does not need to be locked
+    /// by instead using get_mut.
+    fn len(&mut self) -> usize {
+        self.components[0].len()
+    }
+
+    fn matches_types(&self, types: &[TypeId]) -> bool {
+        use std::cmp::Ordering;
+
+        let mut query_types = types.iter();
+        let mut query_type = query_types.next();
+        for t in self.components.iter().map(|c| c.type_id) {
+            if let Some(q) = query_type {
+                match t.partial_cmp(q) {
+                    // Components are sorted, if we've passed a component
+                    // it can no longer be found.
+                    Some(Ordering::Greater) => return false,
+                    Some(Ordering::Equal) => {
+                        query_type = query_types.next();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        query_type.is_none()
     }
 }
 
-pub struct EntityLocation {
-    #[allow(dead_code)]
-    generation: u32,
-    #[allow(dead_code)]
-    archetype: u32,
-    #[allow(dead_code)]
-    index_in_archetype: u32,
+// This is very similar to std's IntoIter trait, but a custom trait is used so that it may be implemented on tuples.
+pub trait ToQueryIter<'a> {
+    type Iter: Iterator;
+    fn iter(&'a mut self) -> Self::Iter;
 }
 
-/// A unique per entity identifier.
+impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQuery<'b, T> {
+    type Iter = ChainedIterator<std::slice::Iter<'a, T>>;
+
+    fn iter(&'a mut self) -> Self::Iter {
+        let mut iters: Vec<std::slice::Iter<'a, T>> = self.locks.iter().map(|l| l.iter()).collect();
+        // If no iters, add an empty iter to iterate over.
+        if iters.is_empty() {
+            iters.push([].iter())
+        }
+        ChainedIterator::new(iters)
+    }
+}
+
+impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQueryMut<'b, T> {
+    type Iter = ChainedIterator<std::slice::IterMut<'a, T>>;
+
+    fn iter(&'a mut self) -> Self::Iter {
+        let mut iters: Vec<std::slice::IterMut<'a, T>> =
+            self.locks.iter_mut().map(|l| l.iter_mut()).collect();
+        // If no iters, add an empty iter to iterate over.
+        if iters.is_empty() {
+            iters.push([].iter_mut())
+        }
+        ChainedIterator::new(iters)
+    }
+}
+
+/// A query reference specifies how data will be queried from the world.
+pub trait QueryReference<'a, 'b: 'a> {
+    type ToQueryIter: ToQueryIter<'a>;
+    fn add_types(types: &mut Vec<TypeId>);
+    fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter;
+}
+
+impl<'a, 'b: 'a, A: 'static> QueryReference<'a, 'b> for &A {
+    type ToQueryIter = ComponentQuery<'b, A>;
+    fn add_types(types: &mut Vec<TypeId>) {
+        types.push(TypeId::of::<A>())
+    }
+    fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter {
+        let type_id = TypeId::of::<A>();
+        let mut query = ComponentQuery::new();
+        for i in archetypes {
+            query.add_archetype(type_id, &world.archetypes[*i]);
+        }
+        query
+    }
+}
+
+impl<'a, 'b: 'a, A: 'static> QueryReference<'a, 'b> for &mut A {
+    type ToQueryIter = ComponentQueryMut<'b, A>;
+    fn add_types(types: &mut Vec<TypeId>) {
+        types.push(TypeId::of::<A>())
+    }
+    fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter {
+        let type_id = TypeId::of::<A>();
+        let mut query = ComponentQueryMut::new();
+        for i in archetypes {
+            query.add_archetype(type_id, &world.archetypes[*i]);
+        }
+        query
+    }
+}
+
+pub struct ComponentQuery<'a, T> {
+    locks: Vec<RwLockReadGuard<'a, Vec<T>>>,
+}
+
+impl<'a, T: 'static> ComponentQuery<'a, T> {
+    fn new() -> Self {
+        Self { locks: Vec::new() }
+    }
+
+    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) {
+        // In theory this index may have already been found, but it's not too bad to do it again here.
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == id)
+            .unwrap();
+        self.locks.push(
+            archetype
+                .get(index)
+                .try_read()
+                .expect("Cannot read: Component store already borrowed"),
+        )
+    }
+}
+
+pub struct ComponentQueryMut<'a, T> {
+    locks: Vec<RwLockWriteGuard<'a, Vec<T>>>,
+}
+
+impl<'a, T: 'static> ComponentQueryMut<'a, T> {
+    fn new() -> Self {
+        Self { locks: Vec::new() }
+    }
+
+    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) {
+        // In theory this index have already been found, but it's not too bad to do it again here.
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == id)
+            .unwrap();
+        self.locks.push(
+            archetype
+                .get(index)
+                .try_write()
+                .expect("Cannot write: Component store already borrowed"),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EntityLocation {
+    archetype_index: EntityId,
+    index_in_archetype: EntityId,
+}
+
 #[derive(Clone, Copy)]
+struct EntityInfo {
+    generation: EntityId,
+    location: EntityLocation,
+}
+
+#[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
-    index: u32,
-    generation: u32,
+    index: EntityId,
+    generation: EntityId,
 }
 
 pub struct World {
     archetypes: Vec<Archetype>,
-    archetype_id_to_index: HashMap<u64, usize>,
-    entities: Vec<EntityLocation>,
-    free_entity_ids: Vec<u32>,
-}
-
-#[derive(Debug)]
-pub enum EntityError {
-    AlreadyRemoved,
+    bundle_id_to_archetype: HashMap<u64, usize>,
+    entities: Vec<EntityInfo>,
+    free_entities: Vec<EntityId>,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             archetypes: Vec::new(),
-            archetype_id_to_index: HashMap::new(),
+            bundle_id_to_archetype: HashMap::new(),
             entities: Vec::new(),
-            free_entity_ids: Vec::new(),
+            free_entities: Vec::new(),
         }
     }
 
-    pub fn remove_entity(&mut self, entity: Entity) -> Result<(), EntityError> {
-        let location = &self
-            .entities
-            .get(entity.index as usize)
-            .ok_or(EntityError::AlreadyRemoved)?;
-
-        // If the generations do not match then this entity has already been removed
-        if location.generation == entity.generation {
-            let archetype = &mut self.archetypes[location.archetype as usize];
-
-            // Remove the entity from each of the archetype's components.
-            for component_store in archetype.components.iter_mut() {
-                unsafe {
-                    (*component_store.0.get()).remove(location.index_in_archetype as usize);
-                }
-            }
-
-            // When each ComponentStore removes a component it swaps the last item in the store to the
-            // removed index. The world's "index_in_archetype" for the entity must be updated to reflect that.
-            let swapped_entity = *archetype.entity_indices.last().unwrap();
-            archetype
-                .entity_indices
-                .swap_remove(location.index_in_archetype as usize);
-            self.entities[swapped_entity].index_in_archetype = location.index_in_archetype;
-
-            // Increment the generation to avoid a double remove being OK.
-            self.entities[entity.index as usize].generation += 1;
-
-            self.free_entity_ids.push(entity.index);
-            Ok(())
-        } else {
-            Err(EntityError::AlreadyRemoved)
-        }
-    }
-
-    pub fn add_component<T>(&mut self, entity: Entity, t: T) {
-        unimplemented!()
-    }
-
-    pub fn remove_component<T>(&mut self, entity: Entity, t: T) {
-        unimplemented!()
-    }
-
-    /// This is unsafe for now because queries can overlap
-    pub unsafe fn query<'a, Q: QueryParams<'a>>(&'a self) -> Q::Query {
-        let mut id_and_index: Vec<(usize, TypeId)> =
-            Q::type_ids_unsorted().iter().copied().enumerate().collect();
-        id_and_index.sort_unstable_by(|a, b| a.1.cmp(&b.1));
-
-        // This isn't a great approach. Multiple Vecs are allocated here.
-        // Total the 'query' function allocates at least 4 Vecs.
-        let type_ids: Vec<TypeId> = id_and_index.iter().map(|(_, id)| id).copied().collect();
-        let type_order: Vec<usize> = id_and_index.iter().map(|(i, _)| i).copied().collect();
-
-        fn matches_archetype(
-            query_type_ids: &[TypeId],
-            archetype_type_ids1: &[TypeId],
-            type_order: &[usize],
-            indices_out: &mut [usize],
-        ) -> bool {
-            let mut query_ids = query_type_ids.iter().enumerate();
-            let mut query_index_and_id = query_ids.next();
-            // Look through archetype components until every component has been matched.
-            for (archetype_index, archetype_id) in archetype_type_ids1.iter().enumerate() {
-                if let Some((query_index, query_id)) = query_index_and_id {
-                    match archetype_id.partial_cmp(query_id) {
-                        // Components are sorted, if we've passed a component
-                        // it can no longer be found.
-                        Some(Ordering::Greater) => return false,
-                        Some(Ordering::Equal) => {
-                            indices_out[type_order[query_index]] = archetype_index;
-                            query_index_and_id = query_ids.next();
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            query_index_and_id.is_none()
-        }
-
-        let mut query = Q::Query::new();
-        let mut locations = vec![0; type_ids.len()];
-        for a in self.archetypes.iter() {
-            let matches = matches_archetype(&type_ids, &a.type_ids, &type_order, &mut locations);
-            println!("MATCHES: {:?}", matches);
-            if matches {
-                // The ordering of the type IDs must be found.
-                // The type ids used for matching are ordered.
-                // So here they can be incorrect.
-                println!("locations: {:?}", locations);
-                query.add_archetype(&a, &locations);
-            }
-        }
-        query
-    }
-
-    pub fn spawn<B: ComponentBundle>(&mut self, b: B) -> Entity {
-        let archetype_id = B::archetype_id();
-        let archetype_index = self
-            .archetype_id_to_index
-            .get(&archetype_id)
-            .copied()
-            .unwrap_or_else(|| {
-                let archetype_index = self.archetypes.len();
-                self.archetypes.push(B::new_archetype());
-                self.archetype_id_to_index
-                    .insert(archetype_id, archetype_index);
-                archetype_index
-            });
-
-        let index_in_archetype = self.archetypes[archetype_index].length as u32;
-
-        let free_id = self.free_entity_ids.pop();
-        let entity = if let Some(index) = free_id {
+    pub fn spawn(&mut self, b: impl ComponentBundle) -> Entity {
+        let (index, generation) = if let Some(index) = self.free_entities.pop() {
             let generation = self.entities[index as usize].generation + 1;
-            self.entities[index as usize] = EntityLocation {
-                archetype: archetype_index as u32,
-                generation,
-                index_in_archetype,
-            };
-            Entity { index, generation }
+            (index, generation)
         } else {
-            self.entities.push(EntityLocation {
-                archetype: archetype_index as u32,
+            // Push placeholder data
+            self.entities.push(EntityInfo {
+                location: EntityLocation {
+                    archetype_index: 0,
+                    index_in_archetype: 0,
+                },
                 generation: 0,
-                index_in_archetype,
             });
-            Entity {
-                index: (self.entities.len() - 1) as u32,
-                generation: 0,
-            }
+
+            // Error if too many entities are allocated.
+            debug_assert!(self.entities.len() <= EntityId::MAX as usize);
+            ((self.entities.len() - 1) as EntityId, 0)
         };
 
-        let archetype = &mut self.archetypes[archetype_index];
-        b.add_to_archetype(entity.index as usize, archetype);
-        entity
+        let location = b.add_to_world(self, index);
+
+        self.entities[index as usize] = EntityInfo {
+            location,
+            generation: generation,
+        };
+
+        Entity { index, generation }
     }
-}
 
-pub trait ComponentQueryTrait<'a> {
-    type Iterator: Iterator;
-    fn new() -> Self;
-    fn iterator(&'a mut self) -> Self::Iterator;
-    fn add_component_store(&mut self, component_store: &ComponentStore);
-}
+    pub fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
+        // Remove an entity
+        // Update swapped entity position if an entity was moved.
+        let entity_info = self.entities[entity.index as usize];
+        if entity_info.generation == entity.generation {
+            self.entities[entity.index as usize].generation += 1;
+            let moved_entity = self.archetypes[entity_info.location.archetype_index as usize]
+                .remove_entity(entity_info.location.index_in_archetype);
+            self.free_entities.push(entity.index);
 
-pub struct ComponentQuery<'a, T> {
-    components: Vec<&'a Box<dyn ComponentStoreInner>>,
-    phantom: std::marker::PhantomData<T>,
-}
+            // Update the position of an entity that was moved.
+            self.entities[moved_entity as usize].location = entity_info.location;
 
-impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for ComponentQuery<'b, T> {
-    type Iterator = ChainedIterator<std::slice::Iter<'a, T>>;
-    fn new() -> Self {
-        Self {
-            components: Vec::new(),
-            phantom: std::marker::PhantomData,
+            Ok(())
+        } else {
+            Err(())
         }
     }
 
-    fn iterator(&mut self) -> Self::Iterator {
-        ChainedIterator::new(if self.components.len() > 0 {
-            self.components
+    /// Adds a component to an entity.
+    /// If the component already exists its data will be replaced.
+    pub fn add_component<T: 'static>(&mut self, entity: Entity, t: T) -> Result<(), ()> {
+        // In an archetypal ECS adding and removing components are the most expensive operations.
+        // The volume of code in this function reflects that.
+        // When a component is added the entity can be either migrated to a brand new archetype
+        // or migrated to an existing archetype.
+
+        let type_id = TypeId::of::<T>();
+        // First find if the entity exists
+        let entity_info = self.entities[entity.index as usize];
+        if entity_info.generation == entity.generation {
+            // First check if the component already exists for this entity.
+            let current_archetype = &self.archetypes[entity_info.location.archetype_index as usize];
+
+            let mut type_ids: Vec<TypeId> = current_archetype
+                .components
                 .iter()
-                .map(|i| i.to_any().downcast_ref::<Vec<T>>().unwrap().iter())
-                .collect()
-        } else {
-            vec![[].iter()] // An empty iterator
-        })
-    }
+                .map(|c| c.type_id)
+                .collect();
+            let binary_search_index = type_ids.binary_search(&type_id);
 
-    fn add_component_store(&mut self, component_store: &ComponentStore) {
-        unsafe { self.components.push(&*component_store.0.get()) }
-    }
-}
+            if let Ok(insert_index) = binary_search_index {
+                // The component already exists, replace it.
+                let current_archetype =
+                    &mut self.archetypes[entity_info.location.archetype_index as usize];
 
-pub struct MutableComponentQuery<'a, T> {
-    components: Vec<&'a mut Box<dyn ComponentStoreInner>>,
-    phantom: std::marker::PhantomData<T>,
-}
+                // Replace the existing component.
+                current_archetype.replace_component(
+                    insert_index,
+                    entity_info.location.index_in_archetype,
+                    t,
+                );
+            } else {
+                // The component does not already exist in the current archetype.
+                // Find an existing archetype to migrate to or create a new archetype
 
-impl<'a, 'b: 'a, T: 'static> ComponentQueryTrait<'a> for MutableComponentQuery<'b, T> {
-    type Iterator = ChainedIterator<std::slice::IterMut<'a, T>>;
-    fn new() -> Self {
-        Self {
-            components: Vec::new(),
-            phantom: std::marker::PhantomData,
-        }
-    }
+                let insert_index = binary_search_index.unwrap_or_else(|i| i);
 
-    fn iterator(&'a mut self) -> Self::Iterator {
-        ChainedIterator::new(if self.components.len() > 0 {
-            self.components
-                .iter_mut()
-                .map(|i| i.to_any_mut().downcast_mut::<Vec<T>>().unwrap().iter_mut())
-                .collect()
-        } else {
-            vec![[].iter_mut()] // An empty iterator
-        })
-    }
+                type_ids.insert(insert_index, type_id);
+                let bundle_id = calculate_bundle_id(&type_ids);
 
-    fn add_component_store(&mut self, component_store: &ComponentStore) {
-        unsafe { self.components.push(&mut *component_store.0.get()) }
-    }
-}
+                let new_archetype_index = if let Some(new_archetype_index) =
+                    self.bundle_id_to_archetype.get(&bundle_id)
+                {
+                    // Found an existing archetype to migrate data to
+                    println!("Found matching archetype for component addition");
+                    *new_archetype_index
+                } else {
+                    // Create a new archetype with the structure of the current archetype and one additional component.
+                    println!("Creating new archetype");
+                    let mut archetype = Archetype::new();
+                    for c in current_archetype.components.iter() {
+                        archetype.components.push(c.new_same_type());
+                    }
 
-pub trait QueryParam<'a> {
-    type ComponentQuery: ComponentQueryTrait<'a>;
-    fn type_id() -> TypeId;
-}
+                    let new_archetype_index = self.archetypes.len();
+                    archetype
+                        .components
+                        .insert(insert_index, ComponentStore::new::<T>());
+                    self.bundle_id_to_archetype
+                        .insert(bundle_id, new_archetype_index);
 
-// Is it OK to use the lifetime for T here?
-impl<'a, T: 'static> QueryParam<'a> for &T {
-    type ComponentQuery = ComponentQuery<'a, T>;
-    fn type_id() -> TypeId {
-        TypeId::of::<T>()
-    }
-}
+                    self.archetypes.push(archetype);
 
-// Is it OK to use the lifetime for T here?
-impl<'a, T: 'static> QueryParam<'a> for &mut T {
-    type ComponentQuery = MutableComponentQuery<'a, T>;
-    fn type_id() -> TypeId {
-        TypeId::of::<T>()
-    }
-}
+                    new_archetype_index
+                };
 
-pub trait QueryParams<'a> {
-    type Query: Query<'a>;
-    fn type_ids() -> Vec<TypeId>;
-    fn type_ids_unsorted() -> Vec<TypeId>;
-}
+                // This split_as_mut lets us mutably borrow from the world twice.
+                let (split0, split1) = self.archetypes.split_at_mut((new_archetype_index) as usize);
 
-pub trait Query<'a> {
-    type Iterator: Iterator;
-    fn new() -> Self;
-    fn add_archetype(&mut self, archetype: &Archetype, indices: &[usize]);
-    fn iterator(&'a mut self) -> Self::Iterator;
-}
+                let old_archetype = &mut split0[entity_info.location.archetype_index as usize];
+                let new_archetype = &mut split1[0];
 
-pub trait ComponentBundle {
-    fn archetype_id() -> u64;
-    fn new_archetype() -> Archetype;
-    fn add_to_archetype(self, index: usize, archetype: &mut Archetype);
-    fn type_ids_and_order(ids_and_order: &mut [(usize, TypeId)]);
-}
-
-macro_rules! component_bundle_impl {
-    ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl<'a, $($name: ComponentQueryTrait<'a>),*> Query<'a> for ($($name,)*) {
-            type Iterator = QueryIterator<($($name::Iterator,)*)>;
-            fn new() -> Self {
-                ($($name::new(),)*)
-            }
-            fn add_archetype(&mut self, archetype: &Archetype, indices: &[usize]) {
-                $(self.$index.add_component_store(&archetype.components[indices[$index]]);)*
-            }
-            fn iterator(&'a mut self) -> Self::Iterator {
-                QueryIterator (($(self.$index.iterator(),)*))
-            }
-        }
-
-        impl<$($name: Iterator),*> Iterator for QueryIterator<($($name,)*)> {
-            type Item = ($($name::Item,)*);
-            fn next(&mut self) -> Option<Self::Item> {
-                Some(($(self.0.$index.next()?,)*))
-            }
-        }
-
-        impl<'a, $($name: QueryParam<'a>),*> QueryParams<'a> for ($($name,)*) {
-            type Query = ($($name::ComponentQuery,)*);
-            fn type_ids() -> Vec<TypeId> {
-                let mut ids = vec![$($name::type_id()), *];
-                ids.sort_unstable();
-                debug_assert!(ids.windows(2).all(|w| w[0] != w[1]), "Cannot query for multiple components of the same type");
-                ids
-            }
-            fn type_ids_unsorted() -> Vec<TypeId> {
-                vec![$($name::type_id()), *]
-            }
-        }
-
-        impl< $($name: 'static),*> ComponentBundle for ($($name,)*) {
-            // By calculating the hash here two hashes are done for
-            // every entity spawned.
-            // The alternative is to use a Vec<TypeId> as the key for
-            // archetypes.
-            fn archetype_id() -> u64 {
-                let mut ids = [$(TypeId::of::<$name>()), *];
-                ids.sort_unstable();
-                debug_assert!(ids.windows(2).all(|w| w[0] != w[1]), "Cannot spawn entities with multiple components of the same type");
-
-                let mut s = DefaultHasher::new();
-                ids.hash(&mut s);
-                s.finish()
-            }
-
-            fn type_ids_and_order(ids_and_order: &mut [(usize, TypeId)]) {
-                $(ids_and_order[$index] = ($index, TypeId::of::<$name>());)*
-                ids_and_order.sort_unstable_by(|a, b| a.1.cmp(&b.1));
-            }
-
-            fn new_archetype() -> Archetype {
-                let mut data = [$((TypeId::of::<$name>(), Some(ComponentStore::new::<$name>())),)*];
-                data.sort_unstable_by(|(id0, _), (id1, _)| id0.cmp(&id1));
-                Archetype {
-                    type_ids: data.iter().map(|(id, _)| *id).collect(),
-                    components: data.iter_mut().map(|(_, component_store)| component_store.take().unwrap()).collect(),
-                    length: 0,
-                    entity_indices: Vec::new(),
+                // If an entity is being moved then update its location
+                if let Some(last) = old_archetype.entities.last() {
+                    self.entities[*last as usize].location = entity_info.location;
                 }
+
+                // First update the entity's location to reflect the changes about to be made.
+                self.entities[entity.index as usize].location = EntityLocation {
+                    archetype_index: new_archetype_index as EntityId,
+                    index_in_archetype: (new_archetype.len()) as EntityId,
+                };
+
+                // The new archetype is the same as the old one but with one additional component.
+                for i in 0..insert_index {
+                    old_archetype.migrate_component(
+                        i,
+                        entity_info.location.archetype_index,
+                        new_archetype,
+                        i,
+                    );
+                }
+
+                // Push the new component to the new archetype
+                new_archetype.push(insert_index, t);
+
+                let components_in_archetype = old_archetype.components.len();
+
+                for i in insert_index..components_in_archetype {
+                    old_archetype.migrate_component(
+                        i,
+                        entity_info.location.index_in_archetype,
+                        new_archetype,
+                        i + 1,
+                    );
+                }
+
+                old_archetype
+                    .entities
+                    .swap_remove(entity_info.location.index_in_archetype as usize);
+                new_archetype.entities.push(entity.index);
             }
 
-            fn add_to_archetype(self, index: usize, archetype: &mut Archetype) {
-                let mut component_ordering = [(0, TypeId::of::<()>()); $count];
-                Self::type_ids_and_order(&mut component_ordering);
-                unsafe {
-                    $(archetype.add_component(component_ordering[$index].0, self.$index);)*
-                }
-                archetype.entity_indices.push(index);
-                archetype.length += 1;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn query<'a, 'b: 'a, Query: QueryReference<'a, 'b>>(&'b self) -> Query::ToQueryIter {
+        let mut types = Vec::new();
+        Query::add_types(&mut types);
+        types.sort();
+        debug_assert!(
+            types.windows(2).all(|x| x[0] != x[1]),
+            "Queries cannot have duplicate types"
+        );
+
+        let mut archetype_indices = Vec::new();
+        for (i, archetype) in self.archetypes.iter().enumerate() {
+            if archetype.matches_types(&types) {
+                archetype_indices.push(i);
             }
         }
-    };
+
+        Query::get_query(self, &archetype_indices)
+    }
 }
-
-component_bundle_impl! {1, (A, 0)}
-component_bundle_impl! {2, (A, 0), (B, 1)}
-component_bundle_impl! {3, (A, 0), (B, 1), (C, 2)}
-component_bundle_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
-component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
-component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
-component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
-component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
-
-pub struct QueryIterator<T>(T);
 
 pub struct ChainedIterator<I: Iterator> {
     current_iter: I,
@@ -444,6 +529,11 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
     fn next(&mut self) -> Option<Self::Item> {
         // Chain the iterators together.
         // If the end of one iterator is reached go to the next.
+
+        // Given that this is going to be part of a group of iterators there
+        // could be an additional function call that does this without checking if it needs to step
+        // to the next iter.
+        // That check would be done only for the first iterator.
         self.current_iter.next().or_else(|| {
             self.iterators.pop().map_or(None, |i| {
                 self.current_iter = i;
@@ -452,3 +542,116 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
         })
     }
 }
+
+/// A bundle of components
+pub trait ComponentBundle {
+    fn new_archetype() -> Archetype;
+    fn add_to_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation;
+}
+
+fn calculate_bundle_id(types: &[TypeId]) -> u64 {
+    // Calculate the bundle ID
+    let mut s = DefaultHasher::new();
+    types.hash(&mut s);
+    s.finish()
+}
+
+macro_rules! component_bundle_impl {
+    ($count: expr, $(($name: ident, $index: tt)),*) => {
+        impl< $($name: 'static),*> ComponentBundle for ($($name,)*) {
+            fn new_archetype() -> Archetype {
+                let mut components = vec![$(ComponentStore::new::<$name>()), *];
+                components.sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
+                Archetype { components, entities: Vec::new() }
+            }
+
+            fn add_to_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation {
+                let mut types = [$(($index, TypeId::of::<$name>())), *];
+                types.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+                debug_assert!(
+                    types.windows(2).all(|x| x[0].1 != x[1].1),
+                    "`ComponentBundle`s cannot have duplicate types"
+                );
+
+                // Is there a better way to map the original ordering to the sorted ordering?
+                let mut order = [0; $count];
+                for i in 0..order.len() {
+                    order[types[i].0] = i;
+                }
+                let types = [$(types[$index].1), *];
+
+                let bundle_id = calculate_bundle_id(&types);
+
+                // Find the appropriate archetype
+                // If it doesn't exist create a new archetype.
+                let archetype_index = if let Some(archetype) = world.bundle_id_to_archetype.get(&bundle_id) {
+                    *archetype
+                } else {
+                    let archetype = Self::new_archetype();
+                    let index = world.archetypes.len();
+
+                    world.bundle_id_to_archetype.insert(bundle_id, index);
+                    world.archetypes.push(archetype);
+                    index
+                };
+
+                world.archetypes[archetype_index].entities.push(entity_index);
+                $(world.archetypes[archetype_index].push(order[$index], self.$index);)*
+                EntityLocation {
+                    archetype_index: archetype_index as EntityId,
+                    index_in_archetype: (world.archetypes[archetype_index].len() - 1) as EntityId
+                }
+            }
+        }
+
+        impl<'a, 'b: 'a, $($name: QueryReference<'a, 'b>),*> QueryReference<'a, 'b>
+            for ($($name,)*)
+        {
+            type ToQueryIter = ($($name::ToQueryIter,)*);
+            fn add_types(types: &mut Vec<TypeId>) {
+                $($name::add_types(types);)*
+            }
+            fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter {
+                (
+                    $($name::get_query(world, archetypes),)*
+                )
+            }
+        }
+
+        #[allow(non_snake_case)]
+        impl<'a, $($name: ToQueryIter<'a>),*> ToQueryIter<'a> for ($($name,)*){
+            type Iter = Zip<($($name::Iter,)*)>;
+            fn iter(&'a mut self) -> Self::Iter {
+                let ($(ref mut $name,)*) = self;
+
+                Zip {
+                    t: ($($name.iter(),)*)
+                }
+            }
+        }
+
+        #[allow(non_snake_case)]
+        impl<$($name: Iterator),*> Iterator for Zip<($($name,)*)> {
+            type Item = ($($name::Item,)*);
+            fn next(&mut self) -> Option<Self::Item> {
+                let ($(ref mut $name,)*) = self.t;
+                // This should be an unwrap unchecked for performance.
+                // Because iterators will always be the same length.
+                Some(($($name.next()?,)*))
+            }
+        }
+    }
+}
+
+pub struct Zip<T> {
+    t: T,
+}
+
+component_bundle_impl! {1, (A, 0)}
+component_bundle_impl! {2, (A, 0), (B, 1)}
+component_bundle_impl! {3, (A, 0), (B, 1), (C, 2)}
+component_bundle_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
+component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
+component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
+component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
