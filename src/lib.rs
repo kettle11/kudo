@@ -1,3 +1,6 @@
+mod scheduler;
+//mod system;
+
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
@@ -199,18 +202,19 @@ impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQueryMut<'b, T> {
 }
 
 /// A query reference specifies how data will be queried from the world.
-pub trait QueryReference<'a, 'b: 'a> {
+pub trait QueryReference<'a> {
     type ToQueryIter: ToQueryIter<'a>;
     fn add_types(types: &mut Vec<TypeId>);
-    fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter;
+    fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter;
 }
 
-impl<'a, 'b: 'a, A: 'static> QueryReference<'a, 'b> for &A {
-    type ToQueryIter = ComponentQuery<'b, A>;
+impl<'a, A: 'static> QueryReference<'a> for &A {
+    type ToQueryIter = ComponentQuery<'a, A>;
+
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
     }
-    fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter {
+    fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter {
         let type_id = TypeId::of::<A>();
         let mut query = ComponentQuery::new();
         for i in archetypes {
@@ -220,12 +224,13 @@ impl<'a, 'b: 'a, A: 'static> QueryReference<'a, 'b> for &A {
     }
 }
 
-impl<'a, 'b: 'a, A: 'static> QueryReference<'a, 'b> for &mut A {
-    type ToQueryIter = ComponentQueryMut<'b, A>;
+impl<'a, A: 'static> QueryReference<'a> for &mut A {
+    type ToQueryIter = ComponentQueryMut<'a, A>;
+
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
     }
-    fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter {
+    fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter {
         let type_id = TypeId::of::<A>();
         let mut query = ComponentQueryMut::new();
         for i in archetypes {
@@ -589,7 +594,7 @@ impl World {
         }
     }
 
-    pub fn query<'a, 'b: 'a, Query: QueryReference<'a, 'b>>(&'b self) -> Query::ToQueryIter {
+    pub fn query<'a, 'b: 'a, Query: QueryReference<'a>>(&'b self) -> Query::ToQueryIter {
         let mut types = Vec::new();
         Query::add_types(&mut types);
         types.sort();
@@ -704,14 +709,15 @@ macro_rules! component_bundle_impl {
             }
         }
 
-        impl<'a, 'b: 'a, $($name: QueryReference<'a, 'b>),*> QueryReference<'a, 'b>
+        impl<'a, $($name: QueryReference<'a>),*> QueryReference<'a>
             for ($($name,)*)
         {
             type ToQueryIter = ($($name::ToQueryIter,)*);
+
             fn add_types(types: &mut Vec<TypeId>) {
                 $($name::add_types(types);)*
             }
-            fn get_query(world: &'b World, archetypes: &[usize]) -> Self::ToQueryIter {
+            fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter {
                 (
                     $($name::get_query(world, archetypes),)*
                 )
