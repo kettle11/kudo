@@ -1,10 +1,11 @@
 mod scheduler;
-//mod system;
+mod system;
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+pub use system::*;
 
 // This can be used to easily change the size of an EntityId.
 type EntityId = u32;
@@ -169,9 +170,9 @@ impl Archetype {
 }
 
 // This is very similar to std's IntoIter trait, but a custom trait is used so that it may be implemented on tuples.
-pub trait GetQueryIter<'a> {
+pub trait GetQueryIter<'iter> {
     type Iter: Iterator;
-    fn iter(&'a mut self) -> Self::Iter;
+    fn iter(&'iter mut self) -> Self::Iter;
 }
 
 impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrow<'world_borrow, T> {
@@ -209,7 +210,7 @@ pub trait Query<'world_borrow> {
     fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter;
 }
 
-impl<'iter, 'world_borrow: 'iter, A: 'static> Query<'world_borrow> for &'world_borrow A {
+impl<'world_borrow, A: 'static> Query<'world_borrow> for &'world_borrow A {
     type GetQueryIter = WorldBorrow<'world_borrow, A>;
 
     fn add_types(types: &mut Vec<TypeId>) {

@@ -17,7 +17,24 @@ fn main() {
         world.add_component(*entity, B(0.0)).unwrap();
     }
 
-    for entity in entities.iter() {
-        world.remove_component::<B>(*entity).unwrap();
-    }
+    (test_system).run(&world);
+    (test_system).run(&world);
+
+    /*
+        for entity in entities.iter() {
+            world.remove_component::<B>(*entity).unwrap();
+        }
+    */
+    // world.query::<(&A, &B)>();
+    /*
+    (|a: &A| {
+        println!("A: {:?}", a);
+    })
+    .run(&world);
+    */
+}
+
+fn test_system(a: &A, b: &mut B) {
+    println!("A: {:?} B: {:?}", a, b);
+    b.0 = 30.;
 }
