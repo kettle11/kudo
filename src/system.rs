@@ -6,35 +6,33 @@ pub trait System<'world_borrow, A> {
     fn run(self, world: &'world_borrow World);
 }
 
-impl<'world_borrow, A: Query<'world_borrow>, F> System<'world_borrow, (A,)> for F
-where
-    F: Fn(
-        <<<A as Query<'world_borrow>>::GetQueryIter as GetQueryIter<'_>>::Iter as Iterator>::Item,
-    ) + Fn(A),
-{
-    fn run(self, world: &'world_borrow World) {
+macro_rules! system_impl {
+    ($count: expr, $(($name: ident, $index: tt)),*) => {
+
+        impl<'world_borrow, FUNC, $($name: Query<'world_borrow>),*> System<'world_borrow, ($($name,)*)> for FUNC
+        where
+            FUNC: Fn(
+                $(<<<$name as Query<'world_borrow>>::GetQueryIter as GetQueryIter<'_>>::Iter as Iterator>::Item),*
+            ) + Fn($($name,)*),
         {
-            let mut query = world.query::<(A,)>();
-            for (a,) in query.iter() {
-                self(a);
+            #[allow(non_snake_case)]
+            fn run(self, world: &'world_borrow World) {
+                {
+                    let mut query = world.query::<($($name,)*)>();
+                    for ($($name,)*) in query.iter() {
+                        self($($name,)*);
+                    }
+                }
             }
         }
     }
 }
 
-impl<'world_borrow, A: Query<'world_borrow>, B: Query<'world_borrow>, F> System<'world_borrow, (A,B)> for F
-where
-    F: Fn(
-        <<<A as Query<'world_borrow>>::GetQueryIter as GetQueryIter<'_>>::Iter as Iterator>::Item,
-        <<<B as Query<'world_borrow>>::GetQueryIter as GetQueryIter<'_>>::Iter as Iterator>::Item,
-    ) + Fn(A, B),
-{
-    fn run(self, world: &'world_borrow World) {
-        {
-            let mut query = world.query::<(A,B)>();
-            for (a,b) in query.iter() {
-                self(a, b);
-            }
-        }
-    }
-}
+system_impl! {1, (A, 0)}
+system_impl! {2, (A, 0), (B, 1)}
+system_impl! {3, (A, 0), (B, 1), (C, 2)}
+system_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
+system_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
+system_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
+system_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
+system_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
