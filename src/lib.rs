@@ -169,16 +169,17 @@ impl Archetype {
 }
 
 // This is very similar to std's IntoIter trait, but a custom trait is used so that it may be implemented on tuples.
-pub trait ToQueryIter<'a> {
+pub trait GetQueryIter<'a> {
     type Iter: Iterator;
     fn iter(&'a mut self) -> Self::Iter;
 }
 
-impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQuery<'b, T> {
-    type Iter = ChainedIterator<std::slice::Iter<'a, T>>;
+impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrow<'world_borrow, T> {
+    type Iter = ChainedIterator<std::slice::Iter<'iter, T>>;
 
-    fn iter(&'a mut self) -> Self::Iter {
-        let mut iters: Vec<std::slice::Iter<'a, T>> = self.locks.iter().map(|l| l.iter()).collect();
+    fn iter(&'iter mut self) -> Self::Iter {
+        let mut iters: Vec<std::slice::Iter<'iter, T>> =
+            self.locks.iter().map(|l| l.iter()).collect();
         // If no iters, add an empty iter to iterate over.
         if iters.is_empty() {
             iters.push([].iter())
@@ -187,11 +188,11 @@ impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQuery<'b, T> {
     }
 }
 
-impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQueryMut<'b, T> {
-    type Iter = ChainedIterator<std::slice::IterMut<'a, T>>;
+impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrowMut<'world_borrow, T> {
+    type Iter = ChainedIterator<std::slice::IterMut<'iter, T>>;
 
-    fn iter(&'a mut self) -> Self::Iter {
-        let mut iters: Vec<std::slice::IterMut<'a, T>> =
+    fn iter(&'iter mut self) -> Self::Iter {
+        let mut iters: Vec<std::slice::IterMut<'iter, T>> =
             self.locks.iter_mut().map(|l| l.iter_mut()).collect();
         // If no iters, add an empty iter to iterate over.
         if iters.is_empty() {
@@ -202,21 +203,21 @@ impl<'a, 'b: 'a, T> ToQueryIter<'a> for ComponentQueryMut<'b, T> {
 }
 
 /// A query reference specifies how data will be queried from the world.
-pub trait QueryReference<'a> {
-    type ToQueryIter: ToQueryIter<'a>;
+pub trait Query<'world_borrow> {
+    type GetQueryIter: for<'a> GetQueryIter<'a>;
     fn add_types(types: &mut Vec<TypeId>);
-    fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter;
+    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter;
 }
 
-impl<'a, A: 'static> QueryReference<'a> for &A {
-    type ToQueryIter = ComponentQuery<'a, A>;
+impl<'iter, 'world_borrow: 'iter, A: 'static> Query<'world_borrow> for &'world_borrow A {
+    type GetQueryIter = WorldBorrow<'world_borrow, A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
     }
-    fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter {
+    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter {
         let type_id = TypeId::of::<A>();
-        let mut query = ComponentQuery::new();
+        let mut query = WorldBorrow::new();
         for i in archetypes {
             query.add_archetype(type_id, &world.archetypes[*i]);
         }
@@ -224,15 +225,15 @@ impl<'a, A: 'static> QueryReference<'a> for &A {
     }
 }
 
-impl<'a, A: 'static> QueryReference<'a> for &mut A {
-    type ToQueryIter = ComponentQueryMut<'a, A>;
+impl<'world_borrow, A: 'static> Query<'world_borrow> for &mut A {
+    type GetQueryIter = WorldBorrowMut<'world_borrow, A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
     }
-    fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter {
+    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter {
         let type_id = TypeId::of::<A>();
-        let mut query = ComponentQueryMut::new();
+        let mut query = WorldBorrowMut::new();
         for i in archetypes {
             query.add_archetype(type_id, &world.archetypes[*i]);
         }
@@ -240,11 +241,11 @@ impl<'a, A: 'static> QueryReference<'a> for &mut A {
     }
 }
 
-pub struct ComponentQuery<'a, T> {
+pub struct WorldBorrow<'a, T> {
     locks: Vec<RwLockReadGuard<'a, Vec<T>>>,
 }
 
-impl<'a, T: 'static> ComponentQuery<'a, T> {
+impl<'a, T: 'static> WorldBorrow<'a, T> {
     fn new() -> Self {
         Self { locks: Vec::new() }
     }
@@ -265,11 +266,11 @@ impl<'a, T: 'static> ComponentQuery<'a, T> {
     }
 }
 
-pub struct ComponentQueryMut<'a, T> {
+pub struct WorldBorrowMut<'a, T> {
     locks: Vec<RwLockWriteGuard<'a, Vec<T>>>,
 }
 
-impl<'a, T: 'static> ComponentQueryMut<'a, T> {
+impl<'a, T: 'static> WorldBorrowMut<'a, T> {
     fn new() -> Self {
         Self { locks: Vec::new() }
     }
@@ -594,9 +595,9 @@ impl World {
         }
     }
 
-    pub fn query<'a, 'b: 'a, Query: QueryReference<'a>>(&'b self) -> Query::ToQueryIter {
+    pub fn query<'world_borrow, Q: Query<'world_borrow>>(&'world_borrow self) -> Q::GetQueryIter {
         let mut types = Vec::new();
-        Query::add_types(&mut types);
+        Q::add_types(&mut types);
         types.sort();
         debug_assert!(
             types.windows(2).all(|x| x[0] != x[1]),
@@ -610,7 +611,7 @@ impl World {
             }
         }
 
-        Query::get_query(self, &archetype_indices)
+        Q::get_query(self, &archetype_indices)
     }
 }
 
@@ -709,15 +710,15 @@ macro_rules! component_bundle_impl {
             }
         }
 
-        impl<'a, $($name: QueryReference<'a>),*> QueryReference<'a>
+        impl<'world_borrow, $($name: Query<'world_borrow>),*> Query<'world_borrow>
             for ($($name,)*)
         {
-            type ToQueryIter = ($($name::ToQueryIter,)*);
+            type GetQueryIter = ($($name::GetQueryIter,)*);
 
             fn add_types(types: &mut Vec<TypeId>) {
                 $($name::add_types(types);)*
             }
-            fn get_query(world: &'a World, archetypes: &[usize]) -> Self::ToQueryIter {
+            fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter {
                 (
                     $($name::get_query(world, archetypes),)*
                 )
@@ -725,7 +726,7 @@ macro_rules! component_bundle_impl {
         }
 
         #[allow(non_snake_case)]
-        impl<'a, $($name: ToQueryIter<'a>),*> ToQueryIter<'a> for ($($name,)*){
+        impl<'a, $($name: GetQueryIter<'a>),*> GetQueryIter<'a> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;
             fn iter(&'a mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;
