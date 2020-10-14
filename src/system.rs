@@ -1,6 +1,6 @@
 //! This file provides easy construction of systems from functions.
 
-use super::{GetQueryIter, Query, World};
+use super::{Query, World, WorldBorrow};
 
 pub trait System<'world_borrow, A> {
     fn run(self, world: &'world_borrow World);
@@ -12,7 +12,7 @@ macro_rules! system_impl {
         impl<'world_borrow, FUNC, $($name: Query<'world_borrow>),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
             FUNC: Fn(
-                $(<<<$name as Query<'world_borrow>>::GetQueryIter as GetQueryIter<'_>>::Iter as Iterator>::Item),*
+                $(<<<$name as Query<'world_borrow>>::WorldBorrow as WorldBorrow<'_>>::Iter as Iterator>::Item),*
             ) + Fn($($name,)*),
         {
             #[allow(non_snake_case)]
