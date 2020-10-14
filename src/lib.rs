@@ -147,6 +147,7 @@ impl Archetype {
         self.components[0].len()
     }
 
+    /*
     fn matches_types(&self, types: &[TypeId]) -> bool {
         use std::cmp::Ordering;
 
@@ -167,15 +168,17 @@ impl Archetype {
         }
         query_type.is_none()
     }
+    */
 }
 
-// This is very similar to std's IntoIter trait, but a custom trait is used so that it may be implemented on tuples.
-pub trait GetQueryIter<'iter> {
+/// A trait for data that has been borrowed from the world.
+/// Call `iter` to get an iterator over the data.
+pub trait WorldBorrow<'iter> {
     type Iter: Iterator;
     fn iter(&'iter mut self) -> Self::Iter;
 }
 
-impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrow<'world_borrow, T> {
+impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowImmut<'world_borrow, T> {
     type Iter = ChainedIterator<std::slice::Iter<'iter, T>>;
 
     fn iter(&'iter mut self) -> Self::Iter {
@@ -189,7 +192,9 @@ impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrow<'worl
     }
 }
 
-impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrowMut<'world_borrow, T> {
+impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter>
+    for WorldBorrowMut<'world_borrow, T>
+{
     type Iter = ChainedIterator<std::slice::IterMut<'iter, T>>;
 
     fn iter(&'iter mut self) -> Self::Iter {
@@ -203,36 +208,54 @@ impl<'iter, 'world_borrow, T: 'static> GetQueryIter<'iter> for WorldBorrowMut<'w
     }
 }
 
-/// A query reference specifies how data will be queried from the world.
+/// A query reference specifies how data will be queried and borrowed from the world.
 pub trait Query<'world_borrow> {
-    type GetQueryIter: for<'a> GetQueryIter<'a>;
+    type WorldBorrow: for<'a> WorldBorrow<'a>;
+
+    /// Used to verify that there are no duplicates queries in a query.
     fn add_types(types: &mut Vec<TypeId>);
-    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter;
+
+    /// Get the query data from the world for the archetypes indice passed in.
+    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow;
+
+    // Because of the way this is implemented the worst case for finding
+    // archetypes for a query is approximately O(a * c * q)
+    // where a is the number of archetypes
+    // c is the number of components in an archetype (which varies)
+    // and q is the number of queries in this query.
+    fn matches_archetype(archetype: &Archetype) -> bool;
 }
 
 impl<'world_borrow, A: 'static> Query<'world_borrow> for &'world_borrow A {
-    type GetQueryIter = WorldBorrow<'world_borrow, A>;
+    type WorldBorrow = WorldBorrowImmut<'world_borrow, A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
     }
-    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter {
+
+    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow {
         let type_id = TypeId::of::<A>();
-        let mut query = WorldBorrow::new();
+        let mut query = WorldBorrowImmut::new();
         for i in archetypes {
             query.add_archetype(type_id, &world.archetypes[*i]);
         }
         query
     }
+
+    fn matches_archetype(archetype: &Archetype) -> bool {
+        let type_id = TypeId::of::<A>();
+        archetype.components.iter().any(|c| c.type_id == type_id)
+    }
 }
 
 impl<'world_borrow, A: 'static> Query<'world_borrow> for &mut A {
-    type GetQueryIter = WorldBorrowMut<'world_borrow, A>;
+    type WorldBorrow = WorldBorrowMut<'world_borrow, A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
     }
-    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter {
+
+    fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow {
         let type_id = TypeId::of::<A>();
         let mut query = WorldBorrowMut::new();
         for i in archetypes {
@@ -240,13 +263,17 @@ impl<'world_borrow, A: 'static> Query<'world_borrow> for &mut A {
         }
         query
     }
+    fn matches_archetype(archetype: &Archetype) -> bool {
+        let type_id = TypeId::of::<A>();
+        archetype.components.iter().any(|c| c.type_id == type_id)
+    }
 }
 
-pub struct WorldBorrow<'a, T> {
+pub struct WorldBorrowImmut<'a, T> {
     locks: Vec<RwLockReadGuard<'a, Vec<T>>>,
 }
 
-impl<'a, T: 'static> WorldBorrow<'a, T> {
+impl<'a, T: 'static> WorldBorrowImmut<'a, T> {
     fn new() -> Self {
         Self { locks: Vec::new() }
     }
@@ -325,6 +352,13 @@ impl World {
             entities: Vec::new(),
             free_entities: Vec::new(),
         }
+    }
+
+    pub fn run_system<'world_borrow, A>(
+        &'world_borrow self,
+        system: impl System<'world_borrow, A>,
+    ) {
+        (system).run(&self);
     }
 
     pub fn spawn(&mut self, b: impl ComponentBundle) -> Entity {
@@ -596,18 +630,21 @@ impl World {
         }
     }
 
-    pub fn query<'world_borrow, Q: Query<'world_borrow>>(&'world_borrow self) -> Q::GetQueryIter {
-        let mut types = Vec::new();
-        Q::add_types(&mut types);
-        types.sort();
-        debug_assert!(
-            types.windows(2).all(|x| x[0] != x[1]),
-            "Queries cannot have duplicate types"
-        );
+    pub fn query<'world_borrow, Q: Query<'world_borrow>>(&'world_borrow self) -> Q::WorldBorrow {
+        #[cfg(debug_assertions)]
+        {
+            let mut types = Vec::new();
+            Q::add_types(&mut types);
+            types.sort();
+            debug_assert!(
+                types.windows(2).all(|x| x[0] != x[1]),
+                "Queries cannot have duplicate types"
+            );
+        }
 
         let mut archetype_indices = Vec::new();
         for (i, archetype) in self.archetypes.iter().enumerate() {
-            if archetype.matches_types(&types) {
+            if Q::matches_archetype(&archetype) {
                 archetype_indices.push(i);
             }
         }
@@ -714,20 +751,24 @@ macro_rules! component_bundle_impl {
         impl<'world_borrow, $($name: Query<'world_borrow>),*> Query<'world_borrow>
             for ($($name,)*)
         {
-            type GetQueryIter = ($($name::GetQueryIter,)*);
+            type WorldBorrow = ($($name::WorldBorrow,)*);
 
             fn add_types(types: &mut Vec<TypeId>) {
                 $($name::add_types(types);)*
             }
-            fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::GetQueryIter {
+
+            fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow {
                 (
                     $($name::get_query(world, archetypes),)*
                 )
             }
+            fn matches_archetype(archetype: &Archetype) -> bool {
+                $($name::matches_archetype(archetype))&&*
+            }
         }
 
         #[allow(non_snake_case)]
-        impl<'a, $($name: GetQueryIter<'a>),*> GetQueryIter<'a> for ($($name,)*){
+        impl<'a, $($name: WorldBorrow<'a>),*> WorldBorrow<'a> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;
             fn iter(&'a mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;

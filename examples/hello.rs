@@ -20,6 +20,7 @@ fn main() {
     (test_system).run(&world);
     (test_system).run(&world);
 
+    world.run_system(&test_system);
     /*
         for entity in entities.iter() {
             world.remove_component::<B>(*entity).unwrap();
