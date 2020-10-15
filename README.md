@@ -1,10 +1,12 @@
 # :clap: kudo
 
-A simple Entity Component System for Rust. 
+An Entity Component System for Rust.
 
 * Fast
 * Easy to use
 * Zero `unsafe` (so far)
+* Zero dependencies
+* Only `702` lines of code (so far)
 
 ---
 
