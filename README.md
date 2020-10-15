@@ -3,10 +3,9 @@
 A simple Entity Component System for Rust. 
 
 * Fast
-* Easy to use
+* Easy
+* Predictable
 * Zero `unsafe` (so far)
-
----
 
 ```rust 
 struct Health(f32);
