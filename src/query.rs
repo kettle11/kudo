@@ -1,14 +1,16 @@
 use super::{Archetype, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut, Zip};
 
+/// A query that can be passed into a system function.
 pub trait SystemQuery<'world_borrow> {
     fn get(world: &'world_borrow World) -> Self;
 }
 
+
+// Parameters for a query.
 pub trait EntityQueryParams<'world_borrow>: Sized {
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
     fn get_entity_query(world: &'world_borrow World) -> Query<Self>;
 }
-
 
 /// Query for entities with specific components.
 pub struct Query<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>>(
@@ -40,6 +42,7 @@ impl<'iter, 'world_borrow, A: EntityQueryItem<'world_borrow>> WorldBorrow<'iter>
     }
 }
 
+/// A member of a Query, like &A, or &mut A
 pub trait EntityQueryItem<'world_borrow> {
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
     fn get(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow;
@@ -92,34 +95,6 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
         archetype.components.iter().any(|c| c.type_id == type_id)
     }
 }
-
-/*
-impl<'world_borrow, A: EntityQueryItem<'world_borrow>> EntityQueryParams<'world_borrow> for (A,) {
-    type WorldBorrow = (A::WorldBorrow,);
-    fn get_entity_query(world: &'world_borrow World) -> Query<'world_borrow, Self> {
-        #[cfg(debug_assertions)]
-        {
-            let mut types = Vec::new();
-            A::add_types(&mut types);
-            types.sort();
-            debug_assert!(
-                types.windows(2).all(|x| x[0] != x[1]),
-                "Queries cannot have duplicate types"
-            );
-        }
-
-        let mut archetype_indices = Vec::new();
-        for (i, archetype) in world.archetypes.iter().enumerate() {
-            let matches = A::matches_archetype(&archetype);
-            if matches {
-                archetype_indices.push(i);
-            }
-        }
-
-        // Find matching archetypes here.
-        Query((A::get(world, &archetype_indices),))
-    }
-}*/
 
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {

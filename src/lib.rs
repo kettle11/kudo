@@ -8,6 +8,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub use system::*;
+
 // This can be used to easily change the size of an EntityId.
 type EntityId = u32;
 
@@ -147,29 +148,6 @@ impl Archetype {
     fn len(&mut self) -> usize {
         self.components[0].len()
     }
-
-    /*
-    fn matches_types(&self, types: &[TypeId]) -> bool {
-        use std::cmp::Ordering;
-
-        let mut query_types = types.iter();
-        let mut query_type = query_types.next();
-        for t in self.components.iter().map(|c| c.type_id) {
-            if let Some(q) = query_type {
-                match t.partial_cmp(q) {
-                    // Components are sorted, if we've passed a component
-                    // it can no longer be found.
-                    Some(Ordering::Greater) => return false,
-                    Some(Ordering::Equal) => {
-                        query_type = query_types.next();
-                    }
-                    _ => {}
-                }
-            }
-        }
-        query_type.is_none()
-    }
-    */
 }
 
 /// A trait for data that has been borrowed from the world.
@@ -492,11 +470,9 @@ impl World {
                     self.bundle_id_to_archetype.get(&bundle_id)
                 {
                     // Found an existing archetype to migrate data to
-                    // println!("Found matching archetype for component addition");
                     *new_archetype_index
                 } else {
                     // Create a new archetype with the structure of the current archetype and one additional component.
-                    // println!("Creating new archetype");
                     let mut archetype = Archetype::new();
                     for c in current_archetype.components.iter() {
                         archetype.components.push(c.new_same_type());
@@ -573,28 +549,6 @@ impl World {
     ) -> Query<Q> {
         Q::get_entity_query(self)
     }
-    /*
-    pub fn query<'world_borrow, Q: Query<'world_borrow>>(&'world_borrow self) -> Q::WorldBorrow {
-        #[cfg(debug_assertions)]
-        {
-            let mut types = Vec::new();
-            Q::add_types(&mut types);
-            types.sort();
-            debug_assert!(
-                types.windows(2).all(|x| x[0] != x[1]),
-                "Queries cannot have duplicate types"
-            );
-        }
-
-        let mut archetype_indices = Vec::new();
-        for (i, archetype) in self.archetypes.iter().enumerate() {
-            if Q::matches_archetype(&archetype) {
-                archetype_indices.push(i);
-            }
-        }
-
-        Q::get_query(self, &archetype_indices)
-    }*/
 }
 
 pub struct ChainedIterator<I: Iterator> {
@@ -691,27 +645,6 @@ macro_rules! component_bundle_impl {
                 }
             }
         }
-
-        /*
-        impl<'world_borrow, $($name: Query<'world_borrow>),*> Query<'world_borrow>
-            for ($($name,)*)
-        {
-            type WorldBorrow = ($($name::WorldBorrow,)*);
-
-            fn add_types(types: &mut Vec<TypeId>) {
-                $($name::add_types(types);)*
-            }
-
-            fn get_query(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow {
-                (
-                    $($name::get_query(world, archetypes),)*
-                )
-            }
-            fn matches_archetype(archetype: &Archetype) -> bool {
-                $($name::matches_archetype(archetype))&&*
-            }
-        }
-        */
 
         #[allow(non_snake_case)]
         impl<'a, $($name: WorldBorrow<'a>),*> WorldBorrow<'a> for ($($name,)*){
