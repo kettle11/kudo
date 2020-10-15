@@ -1,13 +1,10 @@
 # :clap: kudo
 
-An Entity Component System for Rust.
+An Entity Component System for Rust. Fast, easy, and predictable. (Work in progress)
 
-* Fast
-* Easy
-* Predictable
-* Zero `unsafe` (so far)
-* Zero dependencies
-* Only `702` lines of code (so far)
+* No `unsafe`
+* No dependencies
+* Only `660` lines of code
 
 ```rust 
 struct Health(f32);
