@@ -34,5 +34,7 @@ fn main() {
         }
     }
 
-    print_names.run(&world);
+    // The unwrap here checks that the system ran successfully.
+    // The system will fail to run if its queries need mutable access to the same components.
+    print_names.run(&world).unwrap();
 }

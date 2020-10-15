@@ -194,19 +194,19 @@ impl<'a, T: 'static> WorldBorrowImmut<'a, T> {
         Self { locks: Vec::new() }
     }
 
-    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) {
+    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) -> Result<(), ()> {
         // In theory this index may have already been found, but it's not too bad to do it again here.
         let index = archetype
             .components
             .iter()
             .position(|c| c.type_id == id)
             .unwrap();
-        self.locks.push(
-            archetype
-                .get(index)
-                .try_read()
-                .expect("Cannot read: Component store already borrowed"),
-        )
+        if let Ok(lock) = archetype.get(index).try_read() {
+            self.locks.push(lock);
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 
@@ -219,19 +219,20 @@ impl<'a, T: 'static> WorldBorrowMut<'a, T> {
         Self { locks: Vec::new() }
     }
 
-    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) {
+    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) -> Result<(), ()> {
         // In theory this index have already been found, but it's not too bad to do it again here.
         let index = archetype
             .components
             .iter()
             .position(|c| c.type_id == id)
             .unwrap();
-        self.locks.push(
-            archetype
-                .get(index)
-                .try_write()
-                .expect("Cannot write: Component store already borrowed"),
-        )
+
+        if let Ok(lock) = archetype.get(index).try_write() {
+            self.locks.push(lock);
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 }
 
@@ -268,13 +269,6 @@ impl World {
             entities: Vec::new(),
             free_entities: Vec::new(),
         }
-    }
-
-    pub fn run_system<'world_borrow, A>(
-        &'world_borrow self,
-        system: impl System<'world_borrow, A>,
-    ) {
-        (system).run(&self);
     }
 
     pub fn spawn(&mut self, b: impl ComponentBundle) -> Entity {
@@ -546,7 +540,7 @@ impl World {
 
     pub fn query<'world_borrow, Q: EntityQueryParams<'world_borrow>>(
         &'world_borrow self,
-    ) -> Query<Q> {
+    ) -> Result<Query<Q>, ()> {
         Q::get_entity_query(self)
     }
 }

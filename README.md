@@ -6,6 +6,8 @@ A simple Entity Component System for Rust.
 * Easy to use
 * Zero `unsafe` (so far)
 
+---
+
 ```rust 
 struct Health(f32);
 struct Name(String);
@@ -22,7 +24,7 @@ world.spawn((
 ));
 
 // Find every entity with a `Name` and a `Health` component.
-let mut query = world.query::<(&Name, &Health)>();
+let mut query = world.query::<(&Name, &Health)>().unwrap();
 
 // Iterate through all entities with those components.
 for (name, health) in query.iter() {

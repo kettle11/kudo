@@ -16,7 +16,7 @@ fn main() {
     ));
 
     // Find every entity with a `Name` and a `Health` component.
-    let mut query = world.query::<(&Name, &Health)>();
+    let mut query = world.query::<(&Name, &Health)>().unwrap();
 
     // Iterate through all entities with those components.
     for (name, health) in query.iter() {

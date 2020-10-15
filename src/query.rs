@@ -1,15 +1,15 @@
 use super::{Archetype, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut, Zip};
 
 /// A query that can be passed into a system function.
-pub trait SystemQuery<'world_borrow> {
-    fn get(world: &'world_borrow World) -> Self;
+pub trait SystemQuery<'world_borrow>: Sized {
+    fn get(world: &'world_borrow World) -> Result<Self, ()>;
 }
 
 
 // Parameters for a query.
 pub trait EntityQueryParams<'world_borrow>: Sized {
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
-    fn get_entity_query(world: &'world_borrow World) -> Query<Self>;
+    fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
 }
 
 /// Query for entities with specific components.
@@ -26,7 +26,7 @@ impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> Query<'world_borro
 impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world_borrow>
     for Query<'world_borrow, PARAMS>
 {
-    fn get(world: &'world_borrow World) -> Self {
+    fn get(world: &'world_borrow World) -> Result<Self, ()> {
         PARAMS::get_entity_query(world)
     }
 }
@@ -45,7 +45,7 @@ impl<'iter, 'world_borrow, A: EntityQueryItem<'world_borrow>> WorldBorrow<'iter>
 /// A member of a Query, like &A, or &mut A
 pub trait EntityQueryItem<'world_borrow> {
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow;
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()>;
     fn add_types(types: &mut Vec<TypeId>);
     fn matches_archetype(archetype: &Archetype) -> bool;
 }
@@ -58,13 +58,13 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
         types.push(TypeId::of::<A>())
     }
 
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow {
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()> {
         let type_id = TypeId::of::<A>();
         let mut query = WorldBorrowImmut::new();
         for i in archetypes {
-            query.add_archetype(type_id, &world.archetypes[*i]);
+            query.add_archetype(type_id, &world.archetypes[*i])?;
         }
-        query
+        Ok(query)
     }
 
     fn matches_archetype(archetype: &Archetype) -> bool {
@@ -81,13 +81,13 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
         types.push(TypeId::of::<A>())
     }
 
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Self::WorldBorrow {
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()> {
         let type_id = TypeId::of::<A>();
         let mut query = WorldBorrowMut::new();
         for i in archetypes {
-            query.add_archetype(type_id, &world.archetypes[*i]);
+            query.add_archetype(type_id, &world.archetypes[*i])?;
         }
-        query
+        Ok(query)
     }
 
     fn matches_archetype(archetype: &Archetype) -> bool {
@@ -100,7 +100,7 @@ macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
         impl<'world_borrow, $($name: EntityQueryItem<'world_borrow>,)*> EntityQueryParams<'world_borrow> for ($($name,)*) {
             type WorldBorrow = ($($name::WorldBorrow,)*);
-            fn get_entity_query(world: &'world_borrow World) -> Query<'world_borrow, Self> {
+            fn get_entity_query(world: &'world_borrow World) -> Result<Query<'world_borrow, Self>, ()> {
                 #[cfg(debug_assertions)]
                 {
                     let mut types = Vec::new();
@@ -122,7 +122,7 @@ macro_rules! entity_query_params_impl {
                 }
         
                 // Find matching archetypes here.
-                Query(($($name::get(world, &archetype_indices),)*))
+                Ok(Query(($($name::get(world, &archetype_indices)?,)*)))
             }
         }
         
