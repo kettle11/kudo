@@ -4,5 +4,10 @@ version = "0.1.0"
 authors = ["Ian Kettlewell <ian.kettlewell@gmail.com>"]
 edition = "2018"
 license = "zlib"
+repository = "https://github.com/kettle11/kudo"
+readme = "README.md"
+keywords = ["ecs", "entity", "component", "game"]
+categories = ["game-engines", "game-development", "data-structures"]
+description = "A minimalist Entity Component System. (Work in Progress)"
 
 [dependencies]
