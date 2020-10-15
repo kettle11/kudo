@@ -1,6 +1,8 @@
 # :clap: kudo
 
-An Entity Component System for Rust. Fast, easy, and predictable. (Work in progress)
+**WORK IN PROGRESS**
+
+An Entity Component System for Rust. Fast, easy, and predictable.
 
 * No `unsafe`
 * No dependencies
