@@ -5,15 +5,14 @@ pub trait SystemQuery<'world_borrow>: Sized {
     fn get(world: &'world_borrow World) -> Result<Self, ()>;
 }
 
-
 // Parameters for a query.
-pub trait EntityQueryParams<'world_borrow>: Sized {
+pub trait EntityQueryParams<'world_borrow> {
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
     fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
 }
 
 /// Query for entities with specific components.
-pub struct Query<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>>(
+pub struct Query<'world_borrow, PARAMS: EntityQueryParams<'world_borrow> + ?Sized>(
     PARAMS::WorldBorrow,
 );
 
@@ -31,6 +30,7 @@ impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world
     }
 }
 
+/*
 impl<'iter, 'world_borrow, A: EntityQueryItem<'world_borrow>> WorldBorrow<'iter>
     for Query<'world_borrow, (A,)>
 {
@@ -40,7 +40,7 @@ impl<'iter, 'world_borrow, A: EntityQueryItem<'world_borrow>> WorldBorrow<'iter>
             t: (self.0.0.iter(),),
         }
     }
-}
+}*/
 
 /// A member of a Query, like &A, or &mut A
 pub trait EntityQueryItem<'world_borrow> {
@@ -111,7 +111,7 @@ macro_rules! entity_query_params_impl {
                         "Queries cannot have duplicate types"
                     );
                 }
-        
+
                 let mut archetype_indices = Vec::new();
                 for (i, archetype) in world.archetypes.iter().enumerate() {
                     let matches = $($name::matches_archetype(&archetype))&&*;
@@ -120,12 +120,12 @@ macro_rules! entity_query_params_impl {
                         archetype_indices.push(i);
                     }
                 }
-        
+
                 // Find matching archetypes here.
                 Ok(Query(($($name::get(world, &archetype_indices)?,)*)))
             }
         }
-        
+
     }
 }
 
