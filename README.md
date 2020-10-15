@@ -3,12 +3,11 @@
 An Entity Component System for Rust.
 
 * Fast
-* Easy to use
+* Easy
+* Predictable
 * Zero `unsafe` (so far)
 * Zero dependencies
 * Only `702` lines of code (so far)
-
----
 
 ```rust 
 struct Health(f32);
