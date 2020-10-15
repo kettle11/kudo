@@ -1,4 +1,4 @@
-use super::{Archetype, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut, Zip};
+use super::{Archetype, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut};
 
 /// A query that can be passed into a system function.
 pub trait SystemQuery<'world_borrow>: Sized {

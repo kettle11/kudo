@@ -125,6 +125,8 @@ impl ComponentStore {
     }
 }
 
+#[doc(hidden)]
+/// An archetype stores entities with the same set of components.
 pub struct Archetype {
     entities: Vec<EntityId>,
     components: Vec<ComponentStore>,
@@ -226,6 +228,7 @@ impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowMut<'wo
     }
 }
 
+/// An read-only borrow from the world.
 pub struct WorldBorrowImmut<'a, T> {
     locks: Vec<RwLockReadGuard<'a, Vec<T>>>,
 }
@@ -251,6 +254,7 @@ impl<'a, T: 'static> WorldBorrowImmut<'a, T> {
     }
 }
 
+/// A write/read capable borrow from the world.
 pub struct WorldBorrowMut<'a, T> {
     locks: Vec<RwLockWriteGuard<'a, Vec<T>>>,
 }
@@ -277,7 +281,9 @@ impl<'a, T: 'static> WorldBorrowMut<'a, T> {
     }
 }
 
+/// An entity's location within the world
 #[derive(Debug, Clone, Copy)]
+#[doc(hidden)]
 pub struct EntityLocation {
     archetype_index: EntityId,
     index_in_archetype: EntityId,
@@ -289,12 +295,14 @@ struct EntityInfo {
     location: EntityLocation,
 }
 
-#[derive(Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
+/// A handle to an entity within the world.
+#[derive(Debug, Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
     index: EntityId,
     generation: EntityId,
 }
 
+/// The world holds all components and associated entities.
 pub struct World {
     archetypes: Vec<Archetype>,
     bundle_id_to_archetype: HashMap<u64, usize>,
@@ -303,6 +311,7 @@ pub struct World {
 }
 
 impl World {
+    /// Create the world.
     pub fn new() -> Self {
         Self {
             archetypes: Vec::new(),
@@ -312,9 +321,17 @@ impl World {
         }
     }
 
+    /// Spawn an entity with components passed in through a tuple.
+    /// Multiple components can be passed in through the tuple.
+    /// # Example
+    /// ```
+    /// # use kudo::*;
+    /// let mut world = World::new();
+    /// let entity = world.spawn((456, true));
+    /// ```
     pub fn spawn(&mut self, b: impl ComponentBundle) -> Entity {
         let (index, generation) = if let Some(index) = self.free_entities.pop() {
-            let generation = self.entities[index as usize].generation + 1;
+            let (generation, _) = self.entities[index as usize].generation.overflowing_add(1);
             (index, generation)
         } else {
             // Push placeholder data
@@ -341,6 +358,8 @@ impl World {
         Entity { index, generation }
     }
 
+    /// Remove an entity and all its components from the world.
+    /// An error is returned if the entity does not exist.
     pub fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
         // Remove an entity
         // Update swapped entity position if an entity was moved.
@@ -360,6 +379,15 @@ impl World {
         }
     }
 
+    /// Remove a single component from an entity.
+    /// If successful the component is returned.
+    /// # Example
+    /// ```
+    /// # use kudo::*;
+    /// let mut world = World::new();
+    /// let entity = world.spawn((456, true));
+    /// let b = world.remove_component::<bool>(entity).unwrap();
+    /// ```
     pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Result<T, ()> {
         let entity_info = self.entities[entity.index as usize];
 
@@ -622,7 +650,9 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
 
 /// A bundle of components
 pub trait ComponentBundle {
+    #[doc(hidden)]
     fn new_archetype() -> Archetype;
+    #[doc(hidden)]
     fn add_to_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation;
 }
 
