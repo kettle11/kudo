@@ -59,10 +59,10 @@ trait ComponentVec {
     fn len(&mut self) -> usize;
     fn swap_remove(&mut self, index: EntityId);
     fn migrate(&mut self, entity_index: EntityId, other_archetype: &mut dyn ComponentVec);
-    fn new_same_type(&self) -> Box<dyn ComponentVec>;
+    fn new_same_type(&self) -> Box<dyn ComponentVec + Send + Sync>;
 }
 
-impl<T: 'static> ComponentVec for RwLock<Vec<T>> {
+impl<T: 'static + Send + Sync> ComponentVec for RwLock<Vec<T>> {
     fn to_any(&self) -> &dyn Any {
         self
     }
@@ -84,7 +84,7 @@ impl<T: 'static> ComponentVec for RwLock<Vec<T>> {
         component_vec_to_mut(other_component_vec).push(data);
     }
 
-    fn new_same_type(&self) -> Box<dyn ComponentVec> {
+    fn new_same_type(&self) -> Box<dyn ComponentVec + Send + Sync> {
         Box::new(RwLock::new(Vec::<T>::new()))
     }
 }
@@ -101,11 +101,11 @@ fn component_vec_to_mut<T: 'static>(c: &mut dyn ComponentVec) -> &mut Vec<T> {
 /// Stores components for a component type
 struct ComponentStore {
     type_id: TypeId,
-    data: Box<dyn ComponentVec>,
+    data: Box<dyn ComponentVec + Send + Sync>,
 }
 
 impl ComponentStore {
-    pub fn new<T: 'static>() -> Self {
+    pub fn new<T: 'static + Send + Sync>() -> Self {
         Self {
             type_id: TypeId::of::<T>(),
             data: Box::new(RwLock::new(Vec::<T>::new())),
@@ -488,7 +488,11 @@ impl World {
 
     /// Adds a component to an entity.
     /// If the component already exists its data will be replaced.
-    pub fn add_component<T: 'static>(&mut self, entity: Entity, t: T) -> Result<(), ()> {
+    pub fn add_component<T: 'static + Send + Sync>(
+        &mut self,
+        entity: Entity,
+        t: T,
+    ) -> Result<(), ()> {
         // In an archetypal ECS adding and removing components are the most expensive operations.
         // The volume of code in this function reflects that.
         // When a component is added the entity can be either migrated to a brand new archetype
@@ -665,7 +669,7 @@ fn calculate_bundle_id(types: &[TypeId]) -> u64 {
 
 macro_rules! component_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl< $($name: 'static),*> ComponentBundle for ($($name,)*) {
+        impl< $($name: 'static + Send + Sync),*> ComponentBundle for ($($name,)*) {
             fn new_archetype() -> Archetype {
                 let mut components = vec![$(ComponentStore::new::<$name>()), *];
                 components.sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
