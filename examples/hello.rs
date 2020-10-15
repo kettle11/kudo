@@ -35,7 +35,10 @@ fn main() {
     */
 }
 
-fn test_system(a: &A, b: &mut B) {
-    println!("A: {:?} B: {:?}", a, b);
-    b.0 = 30.;
+fn test_system(mut a: EntityQuery<(&A,)>) {
+    for a in a.iter() {
+        println!("A: {:?}", a)
+    }
+    //println!("A: {:?} B: {:?}", a, b);
+    //  b.0 = 30.;
 }

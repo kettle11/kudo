@@ -568,6 +568,7 @@ impl World {
         }
     }
 
+    /*
     pub fn query<'world_borrow, Q: Query<'world_borrow>>(&'world_borrow self) -> Q::WorldBorrow {
         #[cfg(debug_assertions)]
         {
@@ -588,7 +589,7 @@ impl World {
         }
 
         Q::get_query(self, &archetype_indices)
-    }
+    }*/
 }
 
 pub struct ChainedIterator<I: Iterator> {
@@ -686,6 +687,7 @@ macro_rules! component_bundle_impl {
             }
         }
 
+        /*
         impl<'world_borrow, $($name: Query<'world_borrow>),*> Query<'world_borrow>
             for ($($name,)*)
         {
@@ -704,7 +706,8 @@ macro_rules! component_bundle_impl {
                 $($name::matches_archetype(archetype))&&*
             }
         }
-
+        */
+        
         #[allow(non_snake_case)]
         impl<'a, $($name: WorldBorrow<'a>),*> WorldBorrow<'a> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;
