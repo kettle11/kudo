@@ -1,44 +1,25 @@
 use kudo::*;
 
-#[derive(Debug)]
-struct A(f32);
-#[derive(Debug)]
-struct B(f32);
-
-#[derive(Debug)]
-struct C(f32);
-
 fn main() {
+    struct Health(f32);
+    struct Name(String);
+    struct CreepySnakeHair(u32);
+
     let mut world = World::new();
 
-    let entities: Vec<Entity> = (0..10_000).map(|_| world.spawn((A(0.0),))).collect();
+    // Create entities with components.
+    world.spawn((Name("Perseus".to_string()), Health(50.)));
+    world.spawn((
+        Name("Medusa".to_string()),
+        Health(100.),
+        CreepySnakeHair(300),
+    ));
 
-    for entity in entities.iter() {
-        world.add_component(*entity, B(0.0)).unwrap();
+    // Find every entity with a `Name` and a `Health` component.
+    let mut query = world.query::<(&Name, &Health)>();
+
+    // Iterate through all entities with those components.
+    for (name, health) in query.iter() {
+        println!("{}'s health is: {:?}", name.0, health.0);
     }
-
-    (test_system).run(&world);
-    (test_system).run(&world);
-
-    world.run_system(&test_system);
-    /*
-        for entity in entities.iter() {
-            world.remove_component::<B>(*entity).unwrap();
-        }
-    */
-    // world.query::<(&A, &B)>();
-    /*
-    (|a: &A| {
-        println!("A: {:?}", a);
-    })
-    .run(&world);
-    */
-}
-
-fn test_system(mut a: EntityQuery<(&A,)>) {
-    for a in a.iter() {
-        println!("A: {:?}", a)
-    }
-    //println!("A: {:?} B: {:?}", a, b);
-    //  b.0 = 30.;
 }

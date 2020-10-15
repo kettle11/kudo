@@ -568,6 +568,11 @@ impl World {
         }
     }
 
+    pub fn query<'world_borrow, Q: EntityQueryParams<'world_borrow>>(
+        &'world_borrow self,
+    ) -> Query<Q> {
+        Q::get_entity_query(self)
+    }
     /*
     pub fn query<'world_borrow, Q: Query<'world_borrow>>(&'world_borrow self) -> Q::WorldBorrow {
         #[cfg(debug_assertions)]
@@ -707,7 +712,7 @@ macro_rules! component_bundle_impl {
             }
         }
         */
-        
+
         #[allow(non_snake_case)]
         impl<'a, $($name: WorldBorrow<'a>),*> WorldBorrow<'a> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;

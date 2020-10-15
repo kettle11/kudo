@@ -7,7 +7,7 @@ pub trait System<'world_borrow, A> {
 }
 
 macro_rules! system_impl {
-    ($count: expr, $(($name: ident, $index: tt)),*) => {
+    ($($name: ident),*) => {
 
         impl<'world_borrow, FUNC, $($name: SystemQuery<'world_borrow>),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
@@ -15,20 +15,18 @@ macro_rules! system_impl {
         {
             #[allow(non_snake_case)]
             fn run(self, world: &'world_borrow World) {
-                let A = A::get(world);
-                self(A)
+                $(let $name = $name::get(world);)*
+                self($($name),*)
             }
         }
     }
 }
 
-system_impl! {1, (A, 0)}
-/*
-system_impl! {2, (A, 0), (B, 1)}
-system_impl! {3, (A, 0), (B, 1), (C, 2)}
-system_impl! {4, (A, 0), (B, 1), (C, 2), (D, 3)}
-system_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
-system_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
-system_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
-system_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
-*/
+system_impl! {A}
+system_impl! {A, B}
+system_impl! {A, B, C}
+system_impl! {A, B, C, D}
+system_impl! {A, B, C, D, E}
+system_impl! {A, B, C, D, E, F}
+system_impl! {A, B, C, D, E, F, G}
+system_impl! {A, B, C, D, E, F, G, H}
