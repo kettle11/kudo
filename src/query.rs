@@ -2,12 +2,15 @@ use super::{Archetype, EntityId, TypeId, World, WorldBorrow, WorldBorrowImmut, W
 
 /// A query that can be passed into a `System` function.
 pub trait SystemQuery<'world_borrow>: Sized {
+    #[doc(hidden)]
     fn get(world: &'world_borrow World) -> Result<Self, ()>;
 }
 
 /// Parameters passed in as part of a `Query`.
 pub trait EntityQueryParams<'world_borrow> {
+    #[doc(hidden)]
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
+    #[doc(hidden)]
     fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
 }
 
@@ -35,9 +38,13 @@ impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world
 
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait EntityQueryItem<'world_borrow> {
+    #[doc(hidden)]
     type WorldBorrow: for<'iter> WorldBorrow<'iter>;
+    #[doc(hidden)]
     fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()>;
+    #[doc(hidden)]
     fn add_types(types: &mut Vec<TypeId>);
+    #[doc(hidden)]
     fn matches_archetype(archetype: &Archetype) -> bool;
 }
 

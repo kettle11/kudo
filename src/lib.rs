@@ -5,12 +5,9 @@
 //!
 //! An ECS is made up of three parts:
 //!
-//! * Entities:
-//!     Entities are simply an ID associated with various components
-//! * Components
-//!     Individual units of data associated with an entity.
-//! * Systems
-//!     Code that iterates over components
+//! * **Entities**: IDs associated with various components
+//! * **Components**: Individual units of data associated with an entity.
+//! * **Systems**: Code that iterates over components
 //!
 //! ```
 //! # use kudo::*;
@@ -18,7 +15,7 @@
 //! let mut world = World::new();
 //!
 //! // Let's create a new entity with a name and a health component.
-//! // With Kudo components are just plain structs.
+//! // Components are just plain structs.
 //!
 //! // This will be our health component
 //! struct Health(i32);
