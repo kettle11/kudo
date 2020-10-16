@@ -162,25 +162,3 @@ impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowMut<'wo
         ChainedIterator::new(iters)
     }
 }
-
-/*
-/// A borrow of the world sufficient to provide EntityIds for the archetypes.
-pub struct WorldBorrowEntity<'world_borrow> {
-    world: &'world_borrow World,
-    locks: Vec<RwLockReadGuard<'world_borrow, Vec<EntityId>>>,
-}
-
-impl<'iter, 'world_borrow> WorldBorrow<'iter> for WorldBorrowEntity<'world_borrow> {
-    type Iter = ChainedIterator<std::slice::Iter<'iter, EntityId>>;
-
-    fn iter(&'iter mut self) -> Self::Iter {
-        let mut iters: Vec<std::slice::Iter<'iter, EntityId>> =
-            self.locks.iter().map(|l| l.iter()).collect();
-        // If no iters, add an empty iter to iterate over.
-        if iters.is_empty() {
-            iters.push([].iter())
-        }
-        ChainedIterator::new(iters)
-    }
-}
-*/
