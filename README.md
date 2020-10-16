@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/kudo.svg)](https://crates.io/crates/kudo)
 [![License: Zlib](https://img.shields.io/badge/License-Zlib-lightgrey.svg)](https://opensource.org/licenses/Zlib)
 
-## KUDO IS A WORK IN PROGRESS
+## WORK IN PROGRESS
 
 An Entity Component System for Rust. Fast, easy, and predictable.
 
