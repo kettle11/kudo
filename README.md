@@ -1,6 +1,10 @@
 # :clap: kudo
 
-**WORK IN PROGRESS**
+[![Documentation](https://docs.rs/kudo/badge.svg)](https://docs.rs/kudo/)
+[![Crates.io](https://img.shields.io/crates/v/kudo.svg)](https://crates.io/crates/kudo)
+[![License: Zlib](https://img.shields.io/badge/License-Zlib-lightgrey.svg)](https://opensource.org/licenses/Zlib)
+
+## KUDO IS A WORK IN PROGRESS
 
 An Entity Component System for Rust. Fast, easy, and predictable.
 
@@ -31,3 +35,5 @@ for (name, health) in query.iter() {
     println!("{}'s health is: {:?}", name.0, health.0);
 }
 ```
+
+`Kudo` was inspired by the library [`hecs`](https://github.com/Ralith/hecs). If you need a more feature rich ECS, give 'hecs' a try!
