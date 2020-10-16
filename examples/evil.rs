@@ -1,6 +1,8 @@
 /// A malicious example intended to break the ID system
-/// This example will not fail as expected unless EntityId in lib.rs is changed to a u8.
-
+/// This should crash, but does not when EntityId in
+/// lib.rs is changed to a u8.
+/// This illustrates a weakness in a generational ID system.
+/// But in a typical scenario it's incredibly unlikely to have this occur.
 use kudo::*;
 
 fn main() {

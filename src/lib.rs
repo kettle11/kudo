@@ -42,13 +42,16 @@
 
 mod query;
 mod system;
+mod world_borrow;
 
 pub use query::*;
+pub use system::*;
+pub use world_borrow::*;
+
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-pub use system::*;
+use std::sync::RwLock;
 
 // This can be used to easily change the size of an EntityId.
 type EntityId = u32;
@@ -190,94 +193,6 @@ impl Archetype {
     /// by instead using get_mut.
     fn len(&mut self) -> usize {
         self.components[0].len()
-    }
-}
-
-/// A trait for data that has been borrowed from the world.
-/// Call `iter` to get an iterator over the data.
-pub trait WorldBorrow<'iter> {
-    type Iter: Iterator;
-    fn iter(&'iter mut self) -> Self::Iter;
-}
-
-impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowImmut<'world_borrow, T> {
-    type Iter = ChainedIterator<std::slice::Iter<'iter, T>>;
-
-    fn iter(&'iter mut self) -> Self::Iter {
-        let mut iters: Vec<std::slice::Iter<'iter, T>> =
-            self.locks.iter().map(|l| l.iter()).collect();
-        // If no iters, add an empty iter to iterate over.
-        if iters.is_empty() {
-            iters.push([].iter())
-        }
-        ChainedIterator::new(iters)
-    }
-}
-
-impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowMut<'world_borrow, T> {
-    type Iter = ChainedIterator<std::slice::IterMut<'iter, T>>;
-
-    fn iter(&'iter mut self) -> Self::Iter {
-        let mut iters: Vec<std::slice::IterMut<'iter, T>> =
-            self.locks.iter_mut().map(|l| l.iter_mut()).collect();
-        // If no iters, add an empty iter to iterate over.
-        if iters.is_empty() {
-            iters.push([].iter_mut())
-        }
-        ChainedIterator::new(iters)
-    }
-}
-
-/// An read-only borrow from the world.
-pub struct WorldBorrowImmut<'a, T> {
-    locks: Vec<RwLockReadGuard<'a, Vec<T>>>,
-}
-
-impl<'a, T: 'static> WorldBorrowImmut<'a, T> {
-    fn new() -> Self {
-        Self { locks: Vec::new() }
-    }
-
-    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) -> Result<(), ()> {
-        // In theory this index may have already been found, but it's not too bad to do it again here.
-        let index = archetype
-            .components
-            .iter()
-            .position(|c| c.type_id == id)
-            .unwrap();
-        if let Ok(lock) = archetype.get(index).try_read() {
-            self.locks.push(lock);
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-}
-
-/// A write/read capable borrow from the world.
-pub struct WorldBorrowMut<'a, T> {
-    locks: Vec<RwLockWriteGuard<'a, Vec<T>>>,
-}
-
-impl<'a, T: 'static> WorldBorrowMut<'a, T> {
-    fn new() -> Self {
-        Self { locks: Vec::new() }
-    }
-
-    fn add_archetype(&mut self, id: TypeId, archetype: &'a Archetype) -> Result<(), ()> {
-        // In theory this index have already been found, but it's not too bad to do it again here.
-        let index = archetype
-            .components
-            .iter()
-            .position(|c| c.type_id == id)
-            .unwrap();
-
-        if let Ok(lock) = archetype.get(index).try_write() {
-            self.locks.push(lock);
-            Ok(())
-        } else {
-            Err(())
-        }
     }
 }
 
@@ -618,12 +533,15 @@ impl World {
     }
 }
 
+/// An iterator that iterates multiple iterators in a row
+// Can this be replaced with something from the standard library?
 pub struct ChainedIterator<I: Iterator> {
     current_iter: I,
     iterators: Vec<I>,
 }
 
 impl<I: Iterator> ChainedIterator<I> {
+    #[doc(hidden)]
     pub fn new(mut iterators: Vec<I>) -> Self {
         let current_iter = iterators.pop().unwrap();
         Self {
@@ -716,9 +634,9 @@ macro_rules! component_bundle_impl {
         }
 
         #[allow(non_snake_case)]
-        impl<'a, $($name: WorldBorrow<'a>),*> WorldBorrow<'a> for ($($name,)*){
+        impl<'iter, $($name: WorldBorrow<'iter>),*> WorldBorrow<'iter> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;
-            fn iter(&'a mut self) -> Self::Iter {
+            fn iter(&'iter mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;
 
                 Zip {
@@ -740,6 +658,7 @@ macro_rules! component_bundle_impl {
     }
 }
 
+/// An iterator over multiple iterators at once.
 pub struct Zip<T> {
     t: T,
 }

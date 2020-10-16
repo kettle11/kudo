@@ -8,7 +8,7 @@ An Entity Component System for Rust. Fast, easy, and predictable.
 * No dependencies
 * Only `660` lines of code
 
-```rust 
+```rust
 struct Health(f32);
 struct Name(String);
 struct CreepySnakeHair(u32);
