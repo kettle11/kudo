@@ -1,4 +1,4 @@
-# :clap: kudo
+# 👏 kudo
 
 [![Documentation](https://docs.rs/kudo/badge.svg)](https://docs.rs/kudo/)
 [![Crates.io](https://img.shields.io/crates/v/kudo.svg)](https://crates.io/crates/kudo)
