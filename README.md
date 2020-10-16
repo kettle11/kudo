@@ -6,7 +6,7 @@ An Entity Component System for Rust. Fast, easy, and predictable.
 
 * No `unsafe`
 * No dependencies
-* Only `660` lines of code
+* Less than 1k lines of code (so far)
 
 ```rust
 struct Health(f32);

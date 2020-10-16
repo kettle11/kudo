@@ -23,13 +23,6 @@ impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> Query<'world_borro
     pub fn iter(&mut self) -> <PARAMS::WorldBorrow as WorldBorrow>::Iter {
         self.borrow.iter()
     }
-
-    /*
-    /// Gets a specific component from an entity in this query.
-    pub fn get_component<T>(&self, entity: Entity) -> Result<&T, ()> {
-        unimplemented!()
-    }
-    */
 }
 
 impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world_borrow>
@@ -39,18 +32,6 @@ impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world
         PARAMS::get_entity_query(world)
     }
 }
-
-/*
-impl<'iter, 'world_borrow, A: EntityQueryItem<'world_borrow>> WorldBorrow<'iter>
-    for Query<'world_borrow, (A,)>
-{
-    type Iter = Zip<(<A::WorldBorrow as WorldBorrow<'iter>>::Iter,)>;
-    fn iter(&'iter mut self) -> Self::Iter {
-        Zip {
-            t: (self.0.0.iter(),),
-        }
-    }
-}*/
 
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait EntityQueryItem<'world_borrow> {
