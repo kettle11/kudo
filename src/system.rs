@@ -20,11 +20,15 @@ use super::{SystemQuery, World};
 ///         /* Do other stuff */
 ///     }
 /// }
-/// 
+///
 /// my_system.run(&world).unwrap();
 /// ```
 pub trait System<'world_borrow, A> {
     fn run(self, world: &'world_borrow World) -> Result<(), ()>;
+}
+
+pub trait BoxSystem<'world_borrow, A> {
+    fn system(self) -> Box<dyn Fn(&'world_borrow World) -> Result<(), ()>>;
 }
 
 macro_rules! system_impl {
@@ -39,6 +43,21 @@ macro_rules! system_impl {
                 $(let $name = $name::get(world)?;)*
                 self($($name),*);
                 Ok(())
+            }
+        }
+
+        impl<'world_borrow, FUNC, $($name: SystemQuery<'world_borrow>),*> BoxSystem<'world_borrow, ($($name,)*)> for FUNC
+        where
+            FUNC: Fn($($name,)*) + 'static,
+        {
+            #[allow(non_snake_case)]
+            fn system(self) -> Box<dyn Fn(&'world_borrow World) -> Result<(),()>> {
+                Box::new( move |world| {
+                        $(let $name = $name::get(world)?;)*
+                        self($($name),*);
+                        Ok(())
+                    }
+                )
             }
         }
     }
