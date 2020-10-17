@@ -59,7 +59,9 @@ impl<A: 'static> ToEntityQueryItem for &A {
     type EntityQueryItem = Self;
 }
 
-pub struct ARef<A>(A);
+impl<A: 'static> ToEntityQueryItem for &mut A {
+    type EntityQueryItem = Self;
+}
 
 // Implement EntityQueryItem for immutable borrows
 impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
@@ -84,7 +86,6 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
     }
 }
 
-/*
 // Implement EntityQueryItem for mutable borrows
 impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
     type WorldBorrow = WorldBorrowMut<'world_borrow, A>;
@@ -106,7 +107,7 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
         let type_id = TypeId::of::<A>();
         archetype.components.iter().any(|c| c.type_id == type_id)
     }
-}*/
+}
 
 // Perhaps this needs a layer of indirection too?
 
