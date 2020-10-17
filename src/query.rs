@@ -1,4 +1,6 @@
-use super::{Archetype, EntityId, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut};
+use super::{
+    Archetype, EntityId, GetIter, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut,
+};
 
 /// A query that can be passed into a `System` function.
 pub trait SystemQuery<'world_borrow>: Sized {
@@ -9,7 +11,7 @@ pub trait SystemQuery<'world_borrow>: Sized {
 /// Parameters passed in as part of a `Query`.
 pub trait EntityQueryParams<'world_borrow> {
     #[doc(hidden)]
-    type WorldBorrow: for<'iter> WorldBorrow<'iter>;
+    type WorldBorrow: WorldBorrow;
     #[doc(hidden)]
     fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
 }
@@ -23,7 +25,7 @@ pub struct Query<'world_borrow, PARAMS: EntityQueryParams<'world_borrow> + ?Size
 
 impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> Query<'world_borrow, PARAMS> {
     /// Gets an iterator over the components of this query.
-    pub fn iter(&mut self) -> <PARAMS::WorldBorrow as WorldBorrow>::Iter {
+    pub fn iter(&mut self) -> <PARAMS::WorldBorrow as GetIter>::Iter {
         self.borrow.iter()
     }
 }
@@ -39,7 +41,7 @@ impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait EntityQueryItem<'world_borrow> {
     #[doc(hidden)]
-    type WorldBorrow: for<'iter> WorldBorrow<'iter>;
+    type WorldBorrow: WorldBorrow;
     #[doc(hidden)]
     fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()>;
     #[doc(hidden)]

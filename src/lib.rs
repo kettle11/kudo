@@ -631,7 +631,7 @@ macro_rules! component_bundle_impl {
         }
 
         #[allow(non_snake_case)]
-        impl<'iter, $($name: WorldBorrow<'iter>),*> WorldBorrow<'iter> for ($($name,)*){
+        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;
             fn iter(&'iter mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;
@@ -641,6 +641,9 @@ macro_rules! component_bundle_impl {
                 }
             }
         }
+
+        impl<$($name: WorldBorrow),*> WorldBorrow for ($($name,)*){}
+
 
         #[allow(non_snake_case)]
         impl<$($name: Iterator),*> Iterator for Zip<($($name,)*)> {

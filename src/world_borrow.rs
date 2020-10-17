@@ -4,7 +4,9 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// A trait for data that has been borrowed from the world.
 /// Call `iter` to get an iterator over the data.
-pub trait WorldBorrow<'iter> {
+pub trait WorldBorrow: Sized + for<'iter> GetIter<'iter> {}
+
+pub trait GetIter<'iter> {
     type Iter: Iterator;
     fn iter(&'iter mut self) -> Self::Iter;
 }
@@ -14,6 +16,9 @@ pub struct WorldBorrowImmut<'world_borrow, T> {
     world: &'world_borrow World,
     locks: Vec<ArchetypeBorrowRead<'world_borrow, T>>,
 }
+
+impl<'world_borrow, T: 'static> WorldBorrow for WorldBorrowImmut<'world_borrow, T> {}
+impl<'world_borrow, T: 'static> WorldBorrow for WorldBorrowMut<'world_borrow, T> {}
 
 struct ArchetypeBorrowRead<'world_borrow, T> {
     archetype_index: EntityId,
@@ -69,7 +74,7 @@ impl<'world_borrow, T: 'static> WorldBorrowImmut<'world_borrow, T> {
     }
 }
 
-impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowImmut<'world_borrow, T> {
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowImmut<'world_borrow, T> {
     type Iter = ChainedIterator<std::slice::Iter<'iter, T>>;
 
     fn iter(&'iter mut self) -> Self::Iter {
@@ -146,7 +151,7 @@ impl<'world_borrow, T: 'static> WorldBorrowMut<'world_borrow, T> {
     }
 }
 
-impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowMut<'world_borrow, T> {
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowMut<'world_borrow, T> {
     type Iter = ChainedIterator<std::slice::IterMut<'iter, T>>;
 
     fn iter(&'iter mut self) -> Self::Iter {
