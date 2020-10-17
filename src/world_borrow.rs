@@ -4,7 +4,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// A trait for data that has been borrowed from the world.
 /// Call `iter` to get an iterator over the data.
-pub trait WorldBorrow: Sized + for<'iter> GetIter<'iter> {}
+pub trait WorldBorrow<'world_borrow>: Sized + for<'iter> GetIter<'iter> {}
 
 pub trait GetIter<'iter> {
     type Iter: Iterator;
@@ -17,8 +17,8 @@ pub struct WorldBorrowImmut<'world_borrow, T> {
     locks: Vec<ArchetypeBorrowRead<'world_borrow, T>>,
 }
 
-impl<'world_borrow, T: 'static> WorldBorrow for WorldBorrowImmut<'world_borrow, T> {}
-impl<'world_borrow, T: 'static> WorldBorrow for WorldBorrowMut<'world_borrow, T> {}
+impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowImmut<'world_borrow, T> {}
+impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowMut<'world_borrow, T> {}
 
 struct ArchetypeBorrowRead<'world_borrow, T> {
     archetype_index: EntityId,

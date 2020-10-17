@@ -23,35 +23,37 @@ use super::{SystemQuery, World};
 ///
 /// my_system.run(&world).unwrap();
 /// ```
-pub trait System<'world_borrow, A> {
-    fn run(self, world: &'world_borrow World) -> Result<(), ()>;
+pub trait System<A> {
+    fn run(self, world: &World) -> Result<(), ()>;
 }
 
-pub trait BoxSystem<'world_borrow, A> {
-    fn system(self) -> Box<dyn Fn(&'world_borrow World) -> Result<(), ()>>;
+pub trait BoxSystem<'a, A> {
+    fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>>;
 }
 
 macro_rules! system_impl {
     ($($name: ident),*) => {
 
-        impl<'world_borrow, FUNC, $($name: SystemQuery<'world_borrow>),*> System<'world_borrow, ($($name,)*)> for FUNC
+        impl< FUNC, $($name: SystemQuery),*> System<($($name,)*)> for FUNC
         where
-            FUNC: Fn($($name,)*),
+            FUNC: Fn($($name,)*) + 'static,
         {
             #[allow(non_snake_case)]
-            fn run(self, world: &'world_borrow World) -> Result<(), ()> {
+            fn run(self, world: &World) -> Result<(), ()> {
                 $(let $name = $name::get(world)?;)*
                 self($($name),*);
                 Ok(())
             }
         }
 
-        impl<'world_borrow, FUNC, $($name: SystemQuery<'world_borrow>),*> BoxSystem<'world_borrow, ($($name,)*)> for FUNC
+        impl<'a, FUNC, $($name: SystemQuery),*> BoxSystem<'a,($($name,)*)> for FUNC
         where
             FUNC: Fn($($name,)*) + 'static,
         {
             #[allow(non_snake_case)]
-            fn system(self) -> Box<dyn Fn(&'world_borrow World) -> Result<(),()>> {
+            // This value needs to be valid for any lifetime.
+            // Because of the definition here the 'a becomes part of the type.
+            fn system(self) -> Box<dyn Fn(&World) -> Result<(),()>> {
                 Box::new( move |world| {
                         $(let $name = $name::get(world)?;)*
                         self($($name),*);

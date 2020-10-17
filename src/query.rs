@@ -3,45 +3,46 @@ use super::{
 };
 
 /// A query that can be passed into a `System` function.
-pub trait SystemQuery<'world_borrow>: Sized {
+pub trait SystemQuery: Sized {
     #[doc(hidden)]
-    fn get(world: &'world_borrow World) -> Result<Self, ()>;
+    fn get(world: &World) -> Result<Self, ()>;
 }
 
 /// Parameters passed in as part of a `Query`.
 pub trait EntityQueryParams<'world_borrow> {
     #[doc(hidden)]
-    type WorldBorrow: WorldBorrow;
-    #[doc(hidden)]
-    fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
+    type WorldBorrow: WorldBorrow<'world_borrow>;
+    //#[doc(hidden)]
+    //fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
 }
 
 /// Query for entities with specific components.
-pub struct Query<'world_borrow, PARAMS: EntityQueryParams<'world_borrow> + ?Sized> {
+pub struct Query<'world_borrow, PARAMS: ToEntityQueryParams + ?Sized> {
     /// Direct access to the borrow can be used to query for components by
     /// calling `get_component` or `get_component_mut` on members of the borrow tuple.
-    pub borrow: PARAMS::WorldBorrow,
+    pub borrow: <<PARAMS as ToEntityQueryParams>::EntityQueryParams as EntityQueryParams<
+        'world_borrow,
+    >>::WorldBorrow,
 }
 
-impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> Query<'world_borrow, PARAMS> {
+impl<'world_borrow, PARAMS: ToEntityQueryParams> Query<'world_borrow, PARAMS> {
     /// Gets an iterator over the components of this query.
-    pub fn iter(&mut self) -> <PARAMS::WorldBorrow as GetIter>::Iter {
+pub fn iter(&mut self) -> <<<PARAMS as ToEntityQueryParams>::EntityQueryParams as EntityQueryParams<'world_borrow>>::WorldBorrow as GetIter>::Iter{
         self.borrow.iter()
     }
 }
 
-impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world_borrow>
-    for Query<'world_borrow, PARAMS>
-{
-    fn get(world: &'world_borrow World) -> Result<Self, ()> {
-        PARAMS::get_entity_query(world)
+impl<PARAMS: ToEntityQueryParams> SystemQuery for Query<'_, PARAMS> {
+    fn get(world: &World) -> Result<Self, ()> {
+        //PARAMS::get_entity_query(world)
+        unimplemented!()
     }
 }
 
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait EntityQueryItem<'world_borrow> {
     #[doc(hidden)]
-    type WorldBorrow: WorldBorrow;
+    type WorldBorrow: WorldBorrow<'world_borrow>;
     #[doc(hidden)]
     fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()>;
     #[doc(hidden)]
@@ -50,8 +51,18 @@ pub trait EntityQueryItem<'world_borrow> {
     fn matches_archetype(archetype: &Archetype) -> bool;
 }
 
+pub trait ToEntityQueryItem {
+    type EntityQueryItem: for<'a> EntityQueryItem<'a>;
+}
+
+impl<A: 'static> ToEntityQueryItem for &A {
+    type EntityQueryItem = ARef<A>;
+}
+
+pub struct ARef<A>(A);
+
 // Implement EntityQueryItem for immutable borrows
-impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
+impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for ARef<A> {
     type WorldBorrow = WorldBorrowImmut<'world_borrow, A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
@@ -73,6 +84,7 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
     }
 }
 
+/*
 // Implement EntityQueryItem for mutable borrows
 impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
     type WorldBorrow = WorldBorrowMut<'world_borrow, A>;
@@ -94,13 +106,26 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
         let type_id = TypeId::of::<A>();
         archetype.components.iter().any(|c| c.type_id == type_id)
     }
+}*/
+
+// Perhaps this needs a layer of indirection too?
+
+pub trait ToEntityQueryParams {
+    type EntityQueryParams: for<'a> EntityQueryParams<'a>;
 }
 
+impl<'a, A: ToEntityQueryItem> EntityQueryParams<'a> for (A,) {
+    type WorldBorrow =
+        (<<A as ToEntityQueryItem>::EntityQueryItem as EntityQueryItem<'a>>::WorldBorrow,);
+}
+
+// Could there be a way to implement this for a &'world_borrow World to get the lifetime from there?
+/*
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, $($name: EntityQueryItem<'world_borrow>,)*> EntityQueryParams<'world_borrow> for ($($name,)*) {
-            type WorldBorrow = ($($name::WorldBorrow,)*);
-            fn get_entity_query(world: &'world_borrow World) -> Result<Query<'world_borrow, Self>, ()> {
+        impl<$($name: ToEntityQueryItem,)*> EntityQueryParams for ($($name,)*) {
+            type WorldBorrow = ($(<$name::EntityQueryItem as EntityQueryItem<'_>>::WorldBorrow,)*);
+            fn get_entity_query(world: & World) -> Result<Query<Self>, ()> {
                 #[cfg(debug_assertions)]
                 {
                     let mut types = Vec::new();
@@ -130,6 +155,8 @@ macro_rules! entity_query_params_impl {
 }
 
 entity_query_params_impl! {A}
+*/
+/*
 entity_query_params_impl! {A, B}
 entity_query_params_impl! {A, B, C}
 entity_query_params_impl! {A, B, C, D}
@@ -137,3 +164,4 @@ entity_query_params_impl! {A, B, C, D, E}
 entity_query_params_impl! {A, B, C, D, E, F}
 entity_query_params_impl! {A, B, C, D, E, F, G}
 entity_query_params_impl! {A, B, C, D, E, F, G, H}
+*/

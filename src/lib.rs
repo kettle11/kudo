@@ -523,10 +523,9 @@ impl World {
         }
     }
 
-    pub fn query<'world_borrow, Q: EntityQueryParams<'world_borrow>>(
-        &'world_borrow self,
-    ) -> Result<Query<Q>, ()> {
-        Q::get_entity_query(self)
+    pub fn query<'world_borrow, Q: ToEntityQueryParams>(&self) -> Result<Query<Q>, ()> {
+        unimplemented!()
+        //Q::get_entity_query(self)
     }
 }
 
@@ -642,7 +641,7 @@ macro_rules! component_bundle_impl {
             }
         }
 
-        impl<$($name: WorldBorrow),*> WorldBorrow for ($($name,)*){}
+        impl<'world_borrow, $($name: WorldBorrow<'world_borrow>),*> WorldBorrow<'world_borrow> for ($($name,)*){}
 
 
         #[allow(non_snake_case)]
