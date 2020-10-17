@@ -524,8 +524,7 @@ impl World {
     }
 
     pub fn query<'world_borrow, Q: ToEntityQueryParams>(&self) -> Result<Query<Q>, ()> {
-        unimplemented!()
-        //Q::get_entity_query(self)
+        Q::get_entity_query(self)
     }
 }
 
