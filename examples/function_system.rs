@@ -21,9 +21,14 @@ fn main() {
     //(&simple_query as &dyn Fn(Query<(&bool,)>)).system();
     // The unwrap here checks that the system ran successfully.
     // The system will fail to run if its queries need mutable access to the same components.
+    // simple_query.run(&world).unwrap();
+
+    // &simple_query as &dyn FnOnce(<Query<(&bool,)> as TopLevelFetch>::Item) -> ();
+    // simple_test.hi();
     print_names.run(&world).unwrap();
 }
 
+fn simple_test(mut query: Query<(&bool,)>) {}
 fn simple_query(mut query: Query<(&bool,)>) {}
 
 // Find every entity with a `Name` and a `Health` component.

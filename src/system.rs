@@ -1,4 +1,4 @@
-use super::{Fetch, QueryParams, TopLevelFetch, TopLevelQuery, World};
+use super::{Fetch, Query, QueryParam, QueryParams, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -27,44 +27,59 @@ pub trait System<A> {
     fn run(self, world: &World) -> Result<(), ()>;
 }
 
+pub trait TestThingy<A> {
+    fn hi(self);
+}
+
+impl<A: QueryParams, F> TestThingy<A> for F
+where
+    F: Fn(Query<A>),
+{
+    fn hi(self) {
+        println!("HI");
+    }
+}
+
 pub trait BoxSystem<A> {
     fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>>;
 }
 
+/*
+impl<FUNC, A: QueryParams + 'static> System<(A,)> for FUNC
+where
+    FUNC: Fn(Query<A>),
+{
+    #[allow(non_snake_case)]
+    fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
+        // let a = <Query<A> as Fetch<'world_borrow>>::get(world, &[])?;
+        let a = Query {
+            borrow: <A as QueryParams>::Fetch::get(world, &[])?,
+            phantom: std::marker::PhantomData,
+        };
+        self(a);
+        Ok(())
+    }
+}
+*/
 // The value accepted as part of a function should be different from the SystemQuery passed in.
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl< FUNC, $($name: TopLevelQuery),*> System<($($name,)*)> for FUNC
+        impl<FUNC, $($name: QueryParams + 'static),*> System<($($name,)*)>  for FUNC
         where
-            FUNC: Fn($(<$name as TopLevelFetch>::Item,)*) + 'static,
+            FUNC: Fn($(Query<$name>,)*),
         {
             #[allow(non_snake_case)]
-            fn run(self, world: &World) -> Result<(), ()> {
-                $(let $name = <$name as TopLevelQuery>::get(world)?;)*
-                self($($name),*);
+            fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
+                $(let $name = Query{
+                    borrow: <$name as QueryParams>::Fetch::get(world, &[])?,
+                    phantom: std::marker::PhantomData
+                };)*
+
+                self($($name,)*);
                 Ok(())
             }
         }
-
-        /*
-        impl<'a, FUNC, $($name: F),*> BoxSystem<'a,($($name,)*)> for FUNC
-        where
-            FUNC: Fn($($name,)*) + 'static,
-        {
-            #[allow(non_snake_case)]
-            // This value needs to be valid for any lifetime.
-            // Because of the definition here the 'a becomes part of the type.
-            fn system(self) -> Box<dyn Fn(&World) -> Result<(),()>> {
-                Box::new( move |world| {
-                        $(let $name = <$name::EntityQueryParams>::get_entity_query(world)?;)*
-                        self($($name),*);
-                        Ok(())
-                    }
-                )
-            }
-        }
-        */
     };
 }
 

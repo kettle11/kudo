@@ -523,8 +523,12 @@ impl World {
         }
     }
 
-    pub fn query<T: QueryParams>(&self) -> Result<<Query<T> as TopLevelFetch>::Item, ()> {
-        Query::<T>::get(self)
+    pub fn query<'world_borrow, T: QueryParams>(&'world_borrow self) -> Result<Query<T>, ()> {
+        // unimplemented!()
+        Ok(Query {
+            borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, &[])?,
+            phantom: std::marker::PhantomData,
+        })
     }
 }
 

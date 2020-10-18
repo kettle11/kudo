@@ -105,6 +105,13 @@ impl<'world_borrow, T: 'static> WorldBorrowImmut<'world_borrow, T> {
     }
 }
 
+impl<'iter> GetIter<'iter> for () {
+    type Iter = std::iter::Empty<()>;
+    fn iter(&'iter mut self) -> Self::Iter {
+        std::iter::empty()
+    }
+}
+
 impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowImmut<'world_borrow, T> {
     type Iter = ChainedIterator<std::slice::Iter<'iter, T>>;
 
