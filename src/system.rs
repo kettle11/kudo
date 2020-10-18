@@ -1,4 +1,4 @@
-use super::{Fetch, Query, QueryParams, World};
+use super::{Fetch, TopLevelQuery, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -32,16 +32,13 @@ pub trait System<A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<FUNC, $($name: QueryParams + 'static),*> System<($($name,)*)>  for FUNC
+        impl<FUNC, $($name: TopLevelQuery + 'static),*> System<($($name,)*)>  for FUNC
         where
-            FUNC: Fn($(Query<$name>,)*) + 'static + Copy,
+            FUNC: Fn($($name,)*) + Fn($(<$name as Fetch>::Item,)*) + 'static + Copy,
         {
             #[allow(non_snake_case)]
             fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
-                $(let $name = Query{
-                    borrow: <$name as QueryParams>::Fetch::get(world, &[])?,
-                    phantom: std::marker::PhantomData
-                };)*
+                $(let $name = <$name as Fetch<'world_borrow>>::get(world, &[])?;)*
 
                 self($($name,)*);
                 Ok(())

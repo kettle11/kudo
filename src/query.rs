@@ -10,6 +10,19 @@ pub trait QueryParams {
     type Fetch: for<'a> Fetch<'a>;
 }
 
+pub trait TopLevelQuery: for<'a> Fetch<'a> {}
+impl<'world_borrow, T: QueryParams> TopLevelQuery for Query<'world_borrow, T> {}
+
+impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
+    type Item = Query<'a, T>;
+    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+        Ok(Query {
+            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, &archetypes)?,
+            phantom: std::marker::PhantomData,
+        })
+    }
+}
+
 /// Query for entities with specific components.
 pub struct Query<'world_borrow, T: QueryParams> {
     pub borrow: <<T as QueryParams>::Fetch as Fetch<'world_borrow>>::Item,
