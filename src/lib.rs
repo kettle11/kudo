@@ -523,10 +523,12 @@ impl World {
         }
     }
 
-    pub fn query<'world_borrow, Q: EntityQueryParams<'world_borrow>>(
-        &'world_borrow self,
-    ) -> Result<Query<Q>, ()> {
-        Q::get_entity_query(self)
+    pub fn query<'world_borrow, T: QueryParams>(&'world_borrow self) -> Result<Query<T>, ()> {
+        // unimplemented!()
+        Ok(Query {
+            borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, &[])?,
+            phantom: std::marker::PhantomData,
+        })
     }
 }
 
@@ -631,7 +633,7 @@ macro_rules! component_bundle_impl {
         }
 
         #[allow(non_snake_case)]
-        impl<'iter, $($name: WorldBorrow<'iter>),*> WorldBorrow<'iter> for ($($name,)*){
+        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
             type Iter = Zip<($($name::Iter,)*)>;
             fn iter(&'iter mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;
@@ -641,6 +643,9 @@ macro_rules! component_bundle_impl {
                 }
             }
         }
+
+        impl<'world_borrow, $($name: WorldBorrow<'world_borrow>),*> WorldBorrow<'world_borrow> for ($($name,)*){}
+
 
         #[allow(non_snake_case)]
         impl<$($name: Iterator),*> Iterator for Zip<($($name,)*)> {

@@ -1,10 +1,12 @@
-use super::{Archetype, ChainedIterator, Entity, EntityId, World};
+use super::{Archetype, ChainedIterator, Entity, EntityId, Fetch, World};
 use std::any::TypeId;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// A trait for data that has been borrowed from the world.
 /// Call `iter` to get an iterator over the data.
-pub trait WorldBorrow<'iter> {
+pub trait WorldBorrow<'world_borrow>: Sized + for<'iter> GetIter<'iter> {}
+
+pub trait GetIter<'iter> {
     type Iter: Iterator;
     fn iter(&'iter mut self) -> Self::Iter;
 }
@@ -14,6 +16,40 @@ pub struct WorldBorrowImmut<'world_borrow, T> {
     world: &'world_borrow World,
     locks: Vec<ArchetypeBorrowRead<'world_borrow, T>>,
 }
+
+pub struct FetchRead<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
+    type Item = WorldBorrowImmut<'world_borrow, T>;
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+        let type_id = TypeId::of::<T>();
+        let mut query = WorldBorrowImmut::new(world);
+        for i in archetypes {
+            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
+        }
+        Ok(query)
+    }
+}
+
+pub struct FetchWrite<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
+    type Item = WorldBorrowMut<'world_borrow, T>;
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+        let type_id = TypeId::of::<T>();
+        let mut query = WorldBorrowMut::new(world);
+        for i in archetypes {
+            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
+        }
+        Ok(query)
+    }
+}
+impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowImmut<'world_borrow, T> {}
+impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowMut<'world_borrow, T> {}
 
 struct ArchetypeBorrowRead<'world_borrow, T> {
     archetype_index: EntityId,
@@ -69,7 +105,14 @@ impl<'world_borrow, T: 'static> WorldBorrowImmut<'world_borrow, T> {
     }
 }
 
-impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowImmut<'world_borrow, T> {
+impl<'iter> GetIter<'iter> for () {
+    type Iter = std::iter::Empty<()>;
+    fn iter(&'iter mut self) -> Self::Iter {
+        std::iter::empty()
+    }
+}
+
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowImmut<'world_borrow, T> {
     type Iter = ChainedIterator<std::slice::Iter<'iter, T>>;
 
     fn iter(&'iter mut self) -> Self::Iter {
@@ -146,7 +189,7 @@ impl<'world_borrow, T: 'static> WorldBorrowMut<'world_borrow, T> {
     }
 }
 
-impl<'iter, 'world_borrow, T: 'static> WorldBorrow<'iter> for WorldBorrowMut<'world_borrow, T> {
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowMut<'world_borrow, T> {
     type Iter = ChainedIterator<std::slice::IterMut<'iter, T>>;
 
     fn iter(&'iter mut self) -> Self::Iter {

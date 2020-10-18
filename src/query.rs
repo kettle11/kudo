@@ -1,47 +1,36 @@
-use super::{Archetype, EntityId, TypeId, World, WorldBorrow, WorldBorrowImmut, WorldBorrowMut};
+use super::{Archetype, FetchRead, FetchWrite, GetIter, TypeId, World};
 
-/// A query that can be passed into a `System` function.
-pub trait SystemQuery<'world_borrow>: Sized {
-    #[doc(hidden)]
-    fn get(world: &'world_borrow World) -> Result<Self, ()>;
+/// Get data from the world
+pub trait Fetch<'a> {
+    type Item: for<'iter> GetIter<'iter>;
+    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()>;
 }
 
-/// Parameters passed in as part of a `Query`.
-pub trait EntityQueryParams<'world_borrow> {
-    #[doc(hidden)]
-    type WorldBorrow: for<'iter> WorldBorrow<'iter>;
-    #[doc(hidden)]
-    fn get_entity_query(world: &'world_borrow World) -> Result<Query<Self>, ()>;
+pub trait QueryParams {
+    type Fetch: for<'a> Fetch<'a>;
 }
 
 /// Query for entities with specific components.
-pub struct Query<'world_borrow, PARAMS: EntityQueryParams<'world_borrow> + ?Sized> {
-    /// Direct access to the borrow can be used to query for components by
-    /// calling `get_component` or `get_component_mut` on members of the borrow tuple.
-    pub borrow: PARAMS::WorldBorrow,
+pub struct Query<'world_borrow, T: QueryParams> {
+    pub borrow: <<T as QueryParams>::Fetch as Fetch<'world_borrow>>::Item,
+    pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
 
-impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> Query<'world_borrow, PARAMS> {
-    /// Gets an iterator over the components of this query.
-    pub fn iter(&mut self) -> <PARAMS::WorldBorrow as WorldBorrow>::Iter {
+// I'm skeptical of the lifetimes here.
+impl<'world_borrow, 'iter, D: QueryParams> GetIter<'iter> for Query<'world_borrow, D>
+where
+    <<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item: GetIter<'iter>,
+{
+    type Iter = <<<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item as GetIter<'iter>>::Iter;
+    fn iter(&'iter mut self) -> Self::Iter {
         self.borrow.iter()
     }
 }
 
-impl<'world_borrow, PARAMS: EntityQueryParams<'world_borrow>> SystemQuery<'world_borrow>
-    for Query<'world_borrow, PARAMS>
-{
-    fn get(world: &'world_borrow World) -> Result<Self, ()> {
-        PARAMS::get_entity_query(world)
-    }
-}
-
 /// A member of a `Query`, like `&A` or `&mut A`
-pub trait EntityQueryItem<'world_borrow> {
-    #[doc(hidden)]
-    type WorldBorrow: for<'iter> WorldBorrow<'iter>;
-    #[doc(hidden)]
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()>;
+pub trait QueryParam {
+    type Fetch: for<'a> Fetch<'a>;
+
     #[doc(hidden)]
     fn add_types(types: &mut Vec<TypeId>);
     #[doc(hidden)]
@@ -49,20 +38,11 @@ pub trait EntityQueryItem<'world_borrow> {
 }
 
 // Implement EntityQueryItem for immutable borrows
-impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
-    type WorldBorrow = WorldBorrowImmut<'world_borrow, A>;
+impl<'world_borrow, A: 'static> QueryParam for &A {
+    type Fetch = FetchRead<A>; /* Immutable borrow of some sort */
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
-    }
-
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()> {
-        let type_id = TypeId::of::<A>();
-        let mut query = WorldBorrowImmut::new(world);
-        for i in archetypes {
-            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
-        }
-        Ok(query)
     }
 
     fn matches_archetype(archetype: &Archetype) -> bool {
@@ -72,20 +52,11 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &A {
 }
 
 // Implement EntityQueryItem for mutable borrows
-impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
-    type WorldBorrow = WorldBorrowMut<'world_borrow, A>;
+impl<'world_borrow, A: 'static> QueryParam for &mut A {
+    type Fetch = FetchWrite<A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
-    }
-
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::WorldBorrow, ()> {
-        let type_id = TypeId::of::<A>();
-        let mut query = WorldBorrowMut::new(world);
-        for i in archetypes {
-            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
-        }
-        Ok(query)
     }
 
     fn matches_archetype(archetype: &Archetype) -> bool {
@@ -96,12 +67,16 @@ impl<'world_borrow, A: 'static> EntityQueryItem<'world_borrow> for &mut A {
 
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, $($name: EntityQueryItem<'world_borrow>,)*> EntityQueryParams<'world_borrow> for ($($name,)*) {
-            type WorldBorrow = ($($name::WorldBorrow,)*);
-            fn get_entity_query(world: &'world_borrow World) -> Result<Query<'world_borrow, Self>, ()> {
+        impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {
+            type Fetch = ($($name,)*);
+        }
+
+        impl<'world_borrow, $($name: QueryParam,)*> Fetch<'world_borrow> for ($($name,)*) {
+            type Item = ($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item,)*);
+            fn get(world: &'world_borrow World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
                 #[cfg(debug_assertions)]
                 {
-                    let mut types = Vec::new();
+                    let mut types: Vec<TypeId> = Vec::new();
                     $($name::add_types(&mut types);)*
                     types.sort();
                     debug_assert!(
@@ -119,14 +94,13 @@ macro_rules! entity_query_params_impl {
                     }
                 }
 
-                // Find matching archetypes here.
-                Ok(Query {borrow: ($($name::get(world, &archetype_indices)?,)*)})
+                Ok(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, &archetype_indices)?,)*))
             }
         }
-
-    }
+    };
 }
 
+//entity_query_params_impl! {}
 entity_query_params_impl! {A}
 entity_query_params_impl! {A, B}
 entity_query_params_impl! {A, B, C}
