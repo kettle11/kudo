@@ -38,11 +38,11 @@
 //! ```
 
 mod query;
-mod system;
+//mod system;
 mod world_borrow;
 
 pub use query::*;
-pub use system::*;
+//pub use system::*;
 pub use world_borrow::*;
 
 use std::any::{Any, TypeId};
@@ -523,8 +523,10 @@ impl World {
         }
     }
 
-    pub fn query<'world_borrow, Q: ToEntityQueryParams>(&self) -> Result<Query<Q>, ()> {
-        Q::get_entity_query(self)
+    pub fn query<'world_borrow, F: Fetch<'world_borrow>>(
+        &'world_borrow self,
+    ) -> Result<F::Item, ()> {
+        F::get(self, &[])
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{SystemQuery, World};
+use super::{EntityQueryParams, SystemQuery, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -31,16 +31,17 @@ pub trait BoxSystem<'a, A> {
     fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>>;
 }
 
+// The value accepted as part of a function should be different from the SystemQuery passed in.
+// Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-
         impl< FUNC, $($name: SystemQuery),*> System<($($name,)*)> for FUNC
         where
             FUNC: Fn($($name,)*) + 'static,
         {
             #[allow(non_snake_case)]
             fn run(self, world: &World) -> Result<(), ()> {
-                $(let $name = $name::get(world)?;)*
+                $(let $name = <$name::EntityQueryParams>::get_entity_query(world)?;)*
                 self($($name),*);
                 Ok(())
             }
@@ -55,7 +56,7 @@ macro_rules! system_impl {
             // Because of the definition here the 'a becomes part of the type.
             fn system(self) -> Box<dyn Fn(&World) -> Result<(),()>> {
                 Box::new( move |world| {
-                        $(let $name = $name::get(world)?;)*
+                        $(let $name = <$name::EntityQueryParams>::get_entity_query(world)?;)*
                         self($($name),*);
                         Ok(())
                     }
@@ -66,6 +67,7 @@ macro_rules! system_impl {
 }
 
 system_impl! {A}
+/*
 system_impl! {A, B}
 system_impl! {A, B, C}
 system_impl! {A, B, C, D}
@@ -73,3 +75,4 @@ system_impl! {A, B, C, D, E}
 system_impl! {A, B, C, D, E, F}
 system_impl! {A, B, C, D, E, F, G}
 system_impl! {A, B, C, D, E, F, G, H}
+*/

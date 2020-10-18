@@ -1,4 +1,4 @@
-use super::{Archetype, ChainedIterator, Entity, EntityId, World};
+use super::{Archetype, ChainedIterator, Entity, EntityId, Fetch, World};
 use std::any::TypeId;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -15,6 +15,22 @@ pub trait GetIter<'iter> {
 pub struct WorldBorrowImmut<'world_borrow, T> {
     world: &'world_borrow World,
     locks: Vec<ArchetypeBorrowRead<'world_borrow, T>>,
+}
+
+pub struct FetchRead<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
+    type Item = WorldBorrowImmut<'world_borrow, T>;
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+        let type_id = TypeId::of::<T>();
+        let mut query = WorldBorrowImmut::new(world);
+        for i in archetypes {
+            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
+        }
+        Ok(query)
+    }
 }
 
 impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowImmut<'world_borrow, T> {}
