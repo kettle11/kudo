@@ -1,4 +1,4 @@
-use super::{EntityQueryParams, SystemQuery, World};
+use super::{EntityQueryParams, Fetch, SystemQuery, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -27,7 +27,7 @@ pub trait System<A> {
     fn run(self, world: &World) -> Result<(), ()>;
 }
 
-pub trait BoxSystem<'a, A> {
+pub trait BoxSystem<A> {
     fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>>;
 }
 
@@ -35,6 +35,7 @@ pub trait BoxSystem<'a, A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
+        /*
         impl< FUNC, $($name: SystemQuery),*> System<($($name,)*)> for FUNC
         where
             FUNC: Fn($($name,)*) + 'static,
@@ -46,8 +47,9 @@ macro_rules! system_impl {
                 Ok(())
             }
         }
-
-        impl<'a, FUNC, $($name: SystemQuery),*> BoxSystem<'a,($($name,)*)> for FUNC
+        */
+        /*
+        impl<'a, FUNC, $($name: F),*> BoxSystem<'a,($($name,)*)> for FUNC
         where
             FUNC: Fn($($name,)*) + 'static,
         {
@@ -63,7 +65,8 @@ macro_rules! system_impl {
                 )
             }
         }
-    }
+        */
+    };
 }
 
 system_impl! {A}

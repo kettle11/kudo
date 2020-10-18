@@ -33,6 +33,21 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
     }
 }
 
+pub struct FetchWrite<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
+    type Item = WorldBorrowMut<'world_borrow, T>;
+    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+        let type_id = TypeId::of::<T>();
+        let mut query = WorldBorrowMut::new(world);
+        for i in archetypes {
+            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
+        }
+        Ok(query)
+    }
+}
 impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowImmut<'world_borrow, T> {}
 impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowMut<'world_borrow, T> {}
 

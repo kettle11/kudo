@@ -17,12 +17,23 @@ fn main() {
     // Query the world for entities that have a String component and a Health component.
     // The '&' before each component requests read-only access to the component.
     // Using '&mut' would request write/read access for that component.
-    let mut query = world.query::<(&String, &Health)>().unwrap();
+    let mut query = world.query::<Query<(&String, &mut Health)>>().unwrap();
 
     // Iterate over all the components we found and check if their health is below 0.
     for (name, health) in query.iter() {
         if health.0 <= 0 {
             println!("{} has perished!", name);
+
+            health.0 += 20;
+        }
+    }
+
+    for (name, health) in query.iter() {
+        println!("HEALTH: {:?}", health.0);
+        if health.0 <= 0 {
+            println!("{} has perished!", name);
+
+            health.0 += 20;
         }
     }
 }

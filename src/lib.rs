@@ -38,7 +38,7 @@
 //! ```
 
 mod query;
-//mod system;
+mod system;
 mod world_borrow;
 
 pub use query::*;
