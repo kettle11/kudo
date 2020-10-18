@@ -2,7 +2,7 @@ use super::{Archetype, FetchRead, FetchWrite, GetIter, TypeId, World};
 
 /// Get data from the world
 pub trait Fetch<'a> {
-    type Item: for<'iter> GetIter<'iter>;
+    type Item;
     fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()>;
 }
 
@@ -12,6 +12,7 @@ pub trait QueryParams {
 
 pub trait TopLevelQuery: for<'a> Fetch<'a> {}
 impl<'world_borrow, T: QueryParams> TopLevelQuery for Query<'world_borrow, T> {}
+impl<'world_borrow, T: QueryParam> TopLevelQuery for Single<'world_borrow, T> {}
 
 impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
     type Item = Query<'a, T>;
@@ -20,6 +21,52 @@ impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
             borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, &archetypes)?,
             phantom: std::marker::PhantomData,
         })
+    }
+}
+
+/// Used to get a single instance of a component from the world.
+/// If there are multiple of the component in the world an arbitrary
+/// instance is returned.
+pub struct Single<'world_borrow, T: QueryParam> {
+    pub borrow: <<T as QueryParam>::Fetch as Fetch<'world_borrow>>::Item,
+    pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
+}
+
+use std::ops::{Deref, DerefMut};
+
+impl<'a, T: QueryParam> Deref for Single<'a, T> {
+    type Target = <<T as QueryParam>::Fetch as Fetch<'a>>::Item;
+
+    fn deref(&self) -> &Self::Target {
+        &self.borrow
+    }
+}
+
+impl<'a, T: QueryParam> DerefMut for Single<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.borrow
+    }
+}
+
+impl<'a, T: QueryParam> Fetch<'a> for Single<'_, T> {
+    type Item = Single<'a, T>;
+    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+        // The archetypes must be found here.
+        let mut archetype_index = None;
+        for (i, archetype) in world.archetypes.iter().enumerate() {
+            if T::matches_archetype(&archetype) {
+                archetype_index = Some(i);
+            }
+        }
+
+        if let Some(archetype_index) = archetype_index {
+            Ok(Single {
+                borrow: <<T as QueryParam>::Fetch as Fetch<'a>>::get(&world, &[archetype_index])?,
+                phantom: std::marker::PhantomData,
+            })
+        } else {
+            Err(())
+        }
     }
 }
 
