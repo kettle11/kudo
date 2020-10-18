@@ -1,4 +1,4 @@
-use super::{EntityQueryParams, Fetch, SystemQuery, World};
+use super::{Fetch, QueryParams, TopLevelFetch, TopLevelQuery, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -35,19 +35,18 @@ pub trait BoxSystem<A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        /*
-        impl< FUNC, $($name: SystemQuery),*> System<($($name,)*)> for FUNC
+        impl< FUNC, $($name: TopLevelQuery),*> System<($($name,)*)> for FUNC
         where
-            FUNC: Fn($($name,)*) + 'static,
+            FUNC: Fn($(<$name as TopLevelFetch>::Item,)*) + 'static,
         {
             #[allow(non_snake_case)]
             fn run(self, world: &World) -> Result<(), ()> {
-                $(let $name = <$name::EntityQueryParams>::get_entity_query(world)?;)*
+                $(let $name = <$name as TopLevelQuery>::get(world)?;)*
                 self($($name),*);
                 Ok(())
             }
         }
-        */
+
         /*
         impl<'a, FUNC, $($name: F),*> BoxSystem<'a,($($name,)*)> for FUNC
         where
@@ -70,7 +69,6 @@ macro_rules! system_impl {
 }
 
 system_impl! {A}
-/*
 system_impl! {A, B}
 system_impl! {A, B, C}
 system_impl! {A, B, C, D}
@@ -78,4 +76,3 @@ system_impl! {A, B, C, D, E}
 system_impl! {A, B, C, D, E, F}
 system_impl! {A, B, C, D, E, F, G}
 system_impl! {A, B, C, D, E, F, G, H}
-*/
