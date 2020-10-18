@@ -1,47 +1,5 @@
 use super::{Archetype, FetchRead, FetchWrite, GetIter, TypeId, World};
 
-/// A query that can be passed into a `System` function.
-/*
-pub trait TopLevelQuery<'world_borrow> {
-    type Item;
-    fn get(world: &'world_borrow World) -> Result<Self::Item, ()>;
-}
-*/
-
-// Very important here is that the lifetime of the Query this is implemented for is not the same
-// as the lifetime of the Item returned.
-// This means that the outer lifetime is ignored, the Query<'_, PARAMS> is just a way to guide the creation of the
-// Query with the final lifetime.
-/*
-impl<'world_borrow, PARAMS: QueryParams + 'static> TopLevelQuery<'world_borrow>
-    for Query<'_, PARAMS>
-{
-    type Item = Query<'world_borrow, <PARAMS as Fetch<'world_borrow>>::Item>;
-    fn get(world: &'world_borrow World) -> Result<Self::Item, ()> {
-        Ok(Query {
-            borrow: <PARAMS as Fetch<'world_borrow>>::get(world, &[])?,
-            phantom: std::marker::PhantomData,
-        })
-    }
-}
-*/
-
-// Maybe the lifetime of Fetch<'world_borrow> within the Item is too specific?
-// So the Query within a function definition can't be cast to Fetch?
-// Perhaps something about this trait makes it impossible to 'as' into it?
-/*
-impl<'world_borrow, PARAMS: QueryParams + 'static> Fetch<'world_borrow> for Query<'_, PARAMS> {
-    type Item =
-        Query<'world_borrow, <<PARAMS as QueryParams>::Fetch as Fetch<'world_borrow>>::Item>;
-    fn get(world: &'world_borrow World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
-        Ok(Query {
-            borrow: <<PARAMS as QueryParams>::Fetch as Fetch<'world_borrow>>::get(world, &[])?,
-            phantom: std::marker::PhantomData,
-        })
-    }
-}
-*/
-
 /// Get data from the world
 pub trait Fetch<'a> {
     type Item: for<'iter> GetIter<'iter>;
@@ -107,8 +65,6 @@ impl<'world_borrow, A: 'static> QueryParam for &mut A {
     }
 }
 
-// Could there be a way to implement this for a &'world_borrow World to get the lifetime from there?
-
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
         impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {
@@ -131,21 +87,20 @@ macro_rules! entity_query_params_impl {
 
                 let mut archetype_indices = Vec::new();
                 for (i, archetype) in world.archetypes.iter().enumerate() {
-                    let matches = false; //$($name::matches_archetype(&archetype))&&*;
+                    let matches = $($name::matches_archetype(&archetype))&&*;
 
                     if matches {
                         archetype_indices.push(i);
                     }
                 }
 
-                // Find matching archetypes here.
                 Ok(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, &archetype_indices)?,)*))
             }
         }
     };
 }
 
-entity_query_params_impl! {}
+//entity_query_params_impl! {}
 entity_query_params_impl! {A}
 entity_query_params_impl! {A, B}
 entity_query_params_impl! {A, B, C}

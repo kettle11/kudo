@@ -1,4 +1,4 @@
-use super::{Fetch, Query, QueryParam, QueryParams, World};
+use super::{Fetch, Query, QueryParams, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -25,49 +25,16 @@ use super::{Fetch, Query, QueryParam, QueryParams, World};
 /// ```
 pub trait System<A> {
     fn run(self, world: &World) -> Result<(), ()>;
-}
-
-pub trait TestThingy<A> {
-    fn hi(self);
-}
-
-impl<A: QueryParams, F> TestThingy<A> for F
-where
-    F: Fn(Query<A>),
-{
-    fn hi(self) {
-        println!("HI");
-    }
-}
-
-pub trait BoxSystem<A> {
     fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>>;
 }
 
-/*
-impl<FUNC, A: QueryParams + 'static> System<(A,)> for FUNC
-where
-    FUNC: Fn(Query<A>),
-{
-    #[allow(non_snake_case)]
-    fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
-        // let a = <Query<A> as Fetch<'world_borrow>>::get(world, &[])?;
-        let a = Query {
-            borrow: <A as QueryParams>::Fetch::get(world, &[])?,
-            phantom: std::marker::PhantomData,
-        };
-        self(a);
-        Ok(())
-    }
-}
-*/
 // The value accepted as part of a function should be different from the SystemQuery passed in.
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
         impl<FUNC, $($name: QueryParams + 'static),*> System<($($name,)*)>  for FUNC
         where
-            FUNC: Fn($(Query<$name>,)*),
+            FUNC: Fn($(Query<$name>,)*) + 'static + Copy,
         {
             #[allow(non_snake_case)]
             fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
@@ -78,6 +45,11 @@ macro_rules! system_impl {
 
                 self($($name,)*);
                 Ok(())
+            }
+            fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>> {
+                Box::new(move|world|
+                    self.run(world)
+                )
             }
         }
     };
