@@ -2,6 +2,7 @@ use super::{
     Archetype, FetchRead, FetchWrite, GetIter, GetSingle, GetSingleMut, TypeId, World,
     WorldBorrowImmut, WorldBorrowMut,
 };
+use std::ops::{Deref, DerefMut};
 
 /// Get data from the world
 pub trait Fetch<'a> {
@@ -45,6 +46,16 @@ impl<'world_borrow, 'a, T> Single<'world_borrow, T> {
     }
 }
 
+impl<'world_borrow, T> Deref for Single<'world_borrow, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        // This unwrap may be bad. If a Single fails to get its query then this unwrap
+        // will panic when attempting to access a member
+        self.unwrap()
+    }
+}
+
 /// Used to get a single *mutable* instance of a component from the world.
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
@@ -54,11 +65,25 @@ pub struct SingleMut<'world_borrow, T> {
 
 impl<'world_borrow, 'a, T> SingleMut<'world_borrow, T> {
     pub fn get(&'a mut self) -> Option<&mut T> {
-        self.borrow.get()
+        self.borrow.get_mut()
     }
 
     pub fn unwrap(&'a mut self) -> &mut T {
+        self.borrow.get_mut().unwrap()
+    }
+}
+
+impl<'world_borrow, T> Deref for SingleMut<'world_borrow, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
         self.borrow.get().unwrap()
+    }
+}
+
+impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.borrow.get_mut().unwrap()
     }
 }
 

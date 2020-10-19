@@ -18,8 +18,8 @@ fn main() {
 
 // The call to Single here ensures that exactly one component is retrieved.
 // If multiple of the component exist then an arbitrary one is returned.
+// Accessing the Single will panic if no instance of the component exists in the world.
 // This is useful for accessing global singleton data.
-fn print_names(mut program_info: SingleMut<ProgramInfo>) {
-    let info = program_info.unwrap();
-    println!("This program's name is: {}", info.name);
+fn print_names(program_info: SingleMut<ProgramInfo>) {
+    println!("This program's name is: {}", program_info.name);
 }
