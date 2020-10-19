@@ -188,12 +188,14 @@ impl<'world_borrow, A: 'static> QueryParam for &mut A {
 
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
-        impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {
-            type Fetch = ($($name,)*);
+        #[allow(unused_parens)]
+        impl<$($name: QueryParam,)*> QueryParams for ($($name),*) {
+            type Fetch = ($($name),*);
         }
 
-        impl<'world_borrow, $($name: QueryParam,)*> Fetch<'world_borrow> for ($($name,)*) {
-            type Item = ($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item,)*);
+        #[allow(unused_parens)]
+        impl<'world_borrow, $($name: QueryParam,)*> Fetch<'world_borrow> for ($($name),*) {
+            type Item = ($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item),*);
             fn get(world: &'world_borrow World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
                 #[cfg(debug_assertions)]
                 {
@@ -215,7 +217,7 @@ macro_rules! entity_query_params_impl {
                     }
                 }
 
-                Ok(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, &archetype_indices)?,)*))
+                Ok(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, &archetype_indices)?),*))
             }
         }
     };
