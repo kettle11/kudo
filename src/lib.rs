@@ -170,6 +170,23 @@ impl Archetype {
         self.mutable_component_store(component_index).push(t)
     }
 
+    fn get_component_mut<T: 'static>(&mut self, index: EntityId) -> Result<&mut T, ()> {
+        let type_id = TypeId::of::<T>();
+        let mut component_index = None;
+        for (i, c) in self.components.iter().enumerate() {
+            if c.type_id == type_id {
+                component_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(component_index) = component_index {
+            Ok(&mut self.mutable_component_store(component_index)[index as usize])
+        } else {
+            Err(())
+        }
+    }
+
     /// Removes the component from an entity and pushes it to the other archetype
     /// The type does not need to be known to call this function.
     /// But the types of component_index and other_index need to match.
@@ -287,6 +304,18 @@ impl World {
 
             Ok(())
         } else {
+            Err(())
+        }
+    }
+
+    /// Gets mutable access to a single component on an `Entity`.
+    pub fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Result<&mut T, ()> {
+        let entity_info = self.entities[entity.index as usize];
+        if entity_info.generation == entity.generation {
+            let archetype = &mut self.archetypes[entity_info.location.archetype_index as usize];
+            archetype.get_component_mut(entity_info.location.index_in_archetype)
+        } else {
+            // Entity no longer exists
             Err(())
         }
     }
