@@ -1,13 +1,134 @@
-use super::{Archetype, FetchRead, FetchWrite, GetIter, TypeId, World};
+use super::{
+    Archetype, FetchRead, FetchWrite, GetIter, GetSingle, GetSingleMut, TypeId, World,
+    WorldBorrowImmut, WorldBorrowMut,
+};
+use std::ops::{Deref, DerefMut};
 
 /// Get data from the world
 pub trait Fetch<'a> {
-    type Item: for<'iter> GetIter<'iter>;
+    type Item;
     fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()>;
 }
 
 pub trait QueryParams {
     type Fetch: for<'a> Fetch<'a>;
+}
+
+pub trait TopLevelQuery: for<'a> Fetch<'a> {}
+impl<'world_borrow, T: QueryParams> TopLevelQuery for Query<'world_borrow, T> {}
+impl<'world_borrow, T: 'static> TopLevelQuery for Single<'world_borrow, T> {}
+impl<'world_borrow, T: 'static> TopLevelQuery for SingleMut<'world_borrow, T> {}
+
+impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
+    type Item = Query<'a, T>;
+    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+        Ok(Query {
+            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, &archetypes)?,
+            phantom: std::marker::PhantomData,
+        })
+    }
+}
+
+/// Used to get a single *immutable* instance of a component from the world.
+/// If there are multiple of the component in the world an arbitrary
+/// instance is returned.
+pub struct Single<'world_borrow, T> {
+    pub borrow: WorldBorrowImmut<'world_borrow, T>,
+}
+
+impl<'world_borrow, 'a, T> Single<'world_borrow, T> {
+    pub fn get(&'a self) -> Option<&T> {
+        self.borrow.get()
+    }
+
+    pub fn unwrap(&'a self) -> &'a T {
+        self.borrow.get().unwrap()
+    }
+}
+
+impl<'world_borrow, T> Deref for Single<'world_borrow, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        // This unwrap may be bad. If a Single fails to get its query then this unwrap
+        // will panic when attempting to access a member
+        self.unwrap()
+    }
+}
+
+/// Used to get a single *mutable* instance of a component from the world.
+/// If there are multiple of the component in the world an arbitrary
+/// instance is returned.
+pub struct SingleMut<'world_borrow, T> {
+    pub borrow: WorldBorrowMut<'world_borrow, T>,
+}
+
+impl<'world_borrow, 'a, T> SingleMut<'world_borrow, T> {
+    pub fn get(&'a mut self) -> Option<&mut T> {
+        self.borrow.get_mut()
+    }
+
+    pub fn unwrap(&'a mut self) -> &mut T {
+        self.borrow.get_mut().unwrap()
+    }
+}
+
+impl<'world_borrow, T> Deref for SingleMut<'world_borrow, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.borrow.get().unwrap()
+    }
+}
+
+impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.borrow.get_mut().unwrap()
+    }
+}
+
+impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
+    type Item = Single<'a, T>;
+    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+        // The archetypes must be found here.
+        let mut archetype_index = None;
+        let type_id = TypeId::of::<T>();
+        for (i, archetype) in world.archetypes.iter().enumerate() {
+            if archetype.components.iter().any(|c| c.type_id == type_id) {
+                archetype_index = Some(i);
+            }
+        }
+
+        if let Some(archetype_index) = archetype_index {
+            Ok(Single {
+                borrow: FetchRead::<T>::get(&world, &[archetype_index])?,
+            })
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
+    type Item = SingleMut<'a, T>;
+    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+        // The archetypes must be found here.
+        let mut archetype_index = None;
+        let type_id = TypeId::of::<T>();
+        for (i, archetype) in world.archetypes.iter().enumerate() {
+            if archetype.components.iter().any(|c| c.type_id == type_id) {
+                archetype_index = Some(i);
+            }
+        }
+
+        if let Some(archetype_index) = archetype_index {
+            Ok(SingleMut {
+                borrow: FetchWrite::<T>::get(&world, &[archetype_index])?,
+            })
+        } else {
+            Err(())
+        }
+    }
 }
 
 /// Query for entities with specific components.
@@ -39,7 +160,7 @@ pub trait QueryParam {
 
 // Implement EntityQueryItem for immutable borrows
 impl<'world_borrow, A: 'static> QueryParam for &A {
-    type Fetch = FetchRead<A>; /* Immutable borrow of some sort */
+    type Fetch = FetchRead<A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())
