@@ -1,4 +1,4 @@
-use super::{Archetype, FetchRead, FetchWrite, GetIter, TypeId, World};
+use super::{Archetype, FetchRead, FetchWrite, GetIter, GetSingle, TypeId, World};
 
 /// Get data from the world
 pub trait Fetch<'a> {
@@ -32,19 +32,21 @@ pub struct Single<'world_borrow, T: QueryParam> {
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
 
-use std::ops::{Deref, DerefMut};
-
-impl<'a, T: QueryParam> Deref for Single<'a, T> {
-    type Target = <<T as QueryParam>::Fetch as Fetch<'a>>::Item;
-
-    fn deref(&self) -> &Self::Target {
-        &self.borrow
+impl<'world_borrow, 'a, T: QueryParam> Single<'world_borrow, T>
+where
+    <<T as QueryParam>::Fetch as Fetch<'world_borrow>>::Item: GetSingle<'a>,
+{
+    pub fn get(
+        &'a mut self,
+    ) -> Option<<<<T as QueryParam>::Fetch as Fetch<'world_borrow>>::Item as GetSingle<'a>>::Item>
+    {
+        self.borrow.get()
     }
-}
 
-impl<'a, T: QueryParam> DerefMut for Single<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.borrow
+    pub fn unwrap(
+        &'a mut self,
+    ) -> <<<T as QueryParam>::Fetch as Fetch<'world_borrow>>::Item as GetSingle<'a>>::Item {
+        self.borrow.get().unwrap()
     }
 }
 
@@ -99,7 +101,7 @@ pub trait QueryParam {
 
 // Implement EntityQueryItem for immutable borrows
 impl<'world_borrow, A: 'static> QueryParam for &A {
-    type Fetch = FetchRead<A>; /* Immutable borrow of some sort */
+    type Fetch = FetchRead<A>;
 
     fn add_types(types: &mut Vec<TypeId>) {
         types.push(TypeId::of::<A>())

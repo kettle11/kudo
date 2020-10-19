@@ -11,10 +11,22 @@ pub trait GetIter<'iter> {
     fn iter(&'iter mut self) -> Self::Iter;
 }
 
+pub trait GetSingle<'a> {
+    type Item;
+    fn get(&'a mut self) -> Option<Self::Item>;
+}
+
 /// A read-only borrow from the world.
 pub struct WorldBorrowImmut<'world_borrow, T> {
     world: &'world_borrow World,
     locks: Vec<ArchetypeBorrowRead<'world_borrow, T>>,
+}
+
+impl<'a, 'world_borrow: 'a, T> GetSingle<'a> for WorldBorrowImmut<'world_borrow, T> {
+    type Item = &'a T;
+    fn get(&'a mut self) -> Option<Self::Item> {
+        self.locks.get(0)?.read_guard.get(0)
+    }
 }
 
 pub struct FetchRead<T> {
@@ -203,5 +215,12 @@ impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowMut<'world_
             iters.push([].iter_mut())
         }
         ChainedIterator::new(iters)
+    }
+}
+
+impl<'a, 'world_borrow: 'a, T> GetSingle<'a> for WorldBorrowMut<'world_borrow, T> {
+    type Item = &'a mut T;
+    fn get(&'a mut self) -> Option<Self::Item> {
+        self.locks.get_mut(0)?.write_guard.get_mut(0)
     }
 }

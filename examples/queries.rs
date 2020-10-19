@@ -20,7 +20,6 @@ fn main() {
 // If multiple of the component exist then an arbitrary one is returned.
 // This is useful for accessing global singleton data.
 fn print_names(mut program_info: Single<&ProgramInfo>) {
-    let mut data = program_info.iter();
-    let info = data.next().unwrap();
+    let info = program_info.unwrap();
     println!("This program's name is: {}", info.name);
 }
