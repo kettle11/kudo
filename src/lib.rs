@@ -37,10 +37,12 @@
 //! }
 //! ```
 
+mod iterators;
 mod query;
 mod system;
 mod world_borrow;
 
+pub use iterators::*;
 pub use query::*;
 pub use system::*;
 pub use world_borrow::*;
