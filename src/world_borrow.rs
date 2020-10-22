@@ -129,7 +129,7 @@ impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for WorldBorrowImmut<'worl
 
     fn iter(&'iter mut self) -> Self::Iter {
         let mut iters: Vec<std::slice::Iter<'iter, T>> =
-            self.locks.iter().map(|l| l.read_guard.iter()).collect();
+            self.locks.iter_mut().map(|l| l.read_guard.iter()).collect();
         // If no iters, add an empty iter to iterate over.
         if iters.is_empty() {
             iters.push([].iter())

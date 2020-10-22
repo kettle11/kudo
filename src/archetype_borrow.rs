@@ -9,8 +9,8 @@ impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockReadGuard<'world
 }
 
 impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockWriteGuard<'world_borrow, Vec<T>> {
-    type Iter = std::slice::Iter<'iter, T>;
+    type Iter = std::slice::IterMut<'iter, T>;
     fn iter(&'iter mut self) -> Self::Iter {
-        <[T]>::iter(self)
+        <[T]>::iter_mut(self)
     }
 }
