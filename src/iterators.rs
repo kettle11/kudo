@@ -1,17 +1,26 @@
+use super::GetIter;
 use std::iter::Zip;
 
-// This first iterator wraps the standard library `Zip` iterator and flattens nested tuples 
+// This first iterator wraps the standard library `Zip` iterator and flattens nested tuples
 // of values returned to a flat list.
 // Through experimentation I found this to be the a reasonable way to wrap the the standard library `Zip
 // without dramatically hurting the optimizations the compiler can make..
 macro_rules! impl_zip {
     ($name: ident, $zip_type: ty, $m_stuff: expr, $($T: ident),*) => {
-        pub struct $name<$($T: Iterator,)*> {
+        pub struct $name<A: Iterator, $($T: Iterator,)*> {
             inner: $zip_type,
         }
 
-        impl<$($T: Iterator,)*> Iterator for $name<$($T,)*> {
-            type Item = ($($T::Item,)*);
+        impl<A: Iterator, $($T: Iterator,)*> $name<A, $($T,)*> {
+            pub fn new (A: A, $($T: $T,)*) -> Self {
+                Self {
+                    inner: A$(.zip($T))*
+                }
+            }
+        }
+
+        impl<A: Iterator, $($T: Iterator,)*> Iterator for $name<A, $($T,)*> {
+            type Item = (A::Item, $($T::Item,)*);
 
             #[inline(always)]
             fn next(&mut self) -> Option<Self::Item> {
@@ -28,12 +37,12 @@ macro_rules! impl_zip {
 
 // I am not good at writing recursive macros.
 // So instead just the parts that would need recursion are passed in. :)
-impl_zip! {Zip3, Zip<Zip<A, B>, C>, |((a, b), c)| {(a, b, c)}, A, B, C}
-impl_zip! {Zip4, Zip<Zip<Zip<A, B>, C>, D>, |(((a, b), c), d)| {(a, b, c, d)}, A, B, C, D}
-impl_zip! {Zip5, Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, |((((a, b), c), d), e)| {(a, b, c, d, e)}, A, B, C, D, E}
-impl_zip! {Zip6, Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, |(((((a, b), c), d), e), f)| {(a, b, c, d, e, f)}, A, B, C, D, E, F}
-impl_zip! {Zip7, Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, |((((((a, b), c), d), e), f), g)| {(a, b, c, d, e, f, g)}, A, B, C, D, E, F, G}
-impl_zip! {Zip8, Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, |(((((((a, b), c), d), e), f), g), h)| {(a, b, c, d, e, f, g, h)}, A, B, C, D, E, F, G, H}
+impl_zip! {Zip3, Zip<Zip<A, B>, C>, |((a, b), c)| {(a, b, c)}, B, C}
+impl_zip! {Zip4, Zip<Zip<Zip<A, B>, C>, D>, |(((a, b), c), d)| {(a, b, c, d)}, B, C, D}
+impl_zip! {Zip5, Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, |((((a, b), c), d), e)| {(a, b, c, d, e)}, B, C, D, E}
+impl_zip! {Zip6, Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, |(((((a, b), c), d), e), f)| {(a, b, c, d, e, f)}, B, C, D, E, F}
+impl_zip! {Zip7, Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, |((((((a, b), c), d), e), f), g)| {(a, b, c, d, e, f, g)}, B, C, D, E, F, G}
+impl_zip! {Zip8, Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, |(((((((a, b), c), d), e), f), g), h)| {(a, b, c, d, e, f, g, h)}, B, C, D, E, F, G, H}
 
 pub struct ChainedIterator<I: Iterator> {
     current_iter: Option<I>,
@@ -97,3 +106,41 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
         (min, Some(max))
     }
 }
+
+macro_rules! get_iter_impl {
+    ($zip_type: ident, $($name: ident),*) => {
+        #[allow(non_snake_case)]
+        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
+            type Iter = $zip_type<$($name::Iter,)*>;
+            fn iter(&'iter mut self) -> Self::Iter {
+                let ($(ref mut $name,)*) = self;
+
+                $zip_type::new($($name.iter(),)*)
+            }
+        }
+    }
+}
+
+// Non-macro implementations of GetIter that just wraps the inner Iter type.
+// Is a unique 'GetIter' trait really needed or could something in the standard
+// library be used?
+impl<'iter, A: GetIter<'iter>> GetIter<'iter> for (A,) {
+    type Iter = A::Iter;
+    fn iter(&'iter mut self) -> Self::Iter {
+        self.0.iter()
+    }
+}
+
+impl<'iter, A: GetIter<'iter>, B: GetIter<'iter>> GetIter<'iter> for (A, B) {
+    type Iter = Zip<A::Iter, B::Iter>;
+    fn iter(&'iter mut self) -> Self::Iter {
+        self.0.iter().zip(self.1.iter())
+    }
+}
+
+get_iter_impl! {Zip3, A, B, C}
+get_iter_impl! {Zip4, A, B, C, D}
+get_iter_impl! {Zip5, A, B, C, D, E}
+get_iter_impl! {Zip6, A, B, C, D, E, F}
+get_iter_impl! {Zip7, A, B, C, D, E, F, G}
+get_iter_impl! {Zip8, A, B, C, D, E, F, G, H}

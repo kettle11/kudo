@@ -37,11 +37,13 @@
 //! }
 //! ```
 
+//mod archetype_borrow;
 mod iterators;
 mod query;
 mod system;
 mod world_borrow;
 
+//pub use archetype_borrow::*;
 pub use iterators::*;
 pub use query::*;
 pub use system::*;
@@ -626,37 +628,10 @@ macro_rules! component_bundle_impl {
             }
         }
 
-        #[allow(non_snake_case)]
-        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
-            type Iter = Zip<($($name::Iter,)*)>;
-            fn iter(&'iter mut self) -> Self::Iter {
-                let ($(ref mut $name,)*) = self;
-
-                Zip {
-                    t: ($($name.iter(),)*)
-                }
-            }
-        }
 
         impl<'world_borrow, $($name: WorldBorrow<'world_borrow>),*> WorldBorrow<'world_borrow> for ($($name,)*){}
 
-
-        #[allow(non_snake_case)]
-        impl<$($name: Iterator),*> Iterator for Zip<($($name,)*)> {
-            type Item = ($($name::Item,)*);
-            fn next(&mut self) -> Option<Self::Item> {
-                let ($(ref mut $name,)*) = self.t;
-                // This should be an unwrap unchecked for performance.
-                // Because iterators will always be the same length.
-                Some(($($name.next()?,)*))
-            }
-        }
     }
-}
-
-/// An iterator over multiple iterators at once.
-pub struct Zip<T> {
-    t: T,
 }
 
 component_bundle_impl! {1, (A, 0)}
