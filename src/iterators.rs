@@ -12,6 +12,7 @@ macro_rules! impl_zip {
         }
 
         impl<A: Iterator, $($T: Iterator,)*> $name<A, $($T,)*> {
+            #[allow(non_snake_case)]
             pub fn new (A: A, $($T: $T,)*) -> Self {
                 Self {
                     inner: A$(.zip($T))*
@@ -131,6 +132,8 @@ impl<'iter, A: GetIter<'iter>> GetIter<'iter> for (A,) {
     }
 }
 
+// Implementing this for all tuples that implement GetIter is a pretty strong 
+// assumption for a somewhat generic seeming trait.
 impl<'iter, A: GetIter<'iter>, B: GetIter<'iter>> GetIter<'iter> for (A, B) {
     type Iter = Zip<A::Iter, B::Iter>;
     fn iter(&'iter mut self) -> Self::Iter {
