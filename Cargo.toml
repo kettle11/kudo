@@ -11,3 +11,10 @@ categories = ["game-engines", "game-development", "data-structures"]
 description = "A minimalist Entity Component System. (Work in Progress)"
 
 [dependencies]
+
+[dev-dependencies]
+bencher = "0.1.5"
+
+[[bench]]
+name = "bench"
+harness = false
