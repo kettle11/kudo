@@ -2,10 +2,6 @@ use super::{Archetype, ChainedIterator, Entity, EntityId, Fetch, World};
 use std::any::TypeId;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-/// A trait for data that has been borrowed from the world.
-/// Call `iter` to get an iterator over the data.
-pub trait WorldBorrow<'world_borrow>: Sized + for<'iter> GetIter<'iter> {}
-
 pub trait GetIter<'iter> {
     type Iter: Iterator;
     fn iter(&'iter mut self) -> Self::Iter;
@@ -60,8 +56,6 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
         Ok(query)
     }
 }
-impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowImmut<'world_borrow, T> {}
-impl<'world_borrow, T: 'static> WorldBorrow<'world_borrow> for WorldBorrowMut<'world_borrow, T> {}
 
 struct ArchetypeBorrowRead<'world_borrow, T> {
     archetype_index: EntityId,

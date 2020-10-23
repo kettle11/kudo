@@ -115,7 +115,6 @@ macro_rules! get_iter_impl {
             type Iter = $zip_type<$($name::Iter,)*>;
             fn iter(&'iter mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;
-
                 $zip_type::new($($name.iter(),)*)
             }
         }

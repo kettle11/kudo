@@ -37,13 +37,13 @@
 //! }
 //! ```
 
-//mod archetype_borrow;
+mod archetype_borrow;
 mod iterators;
 mod query;
 mod system;
 mod world_borrow;
 
-//pub use archetype_borrow::*;
+pub use archetype_borrow::*;
 pub use iterators::*;
 pub use query::*;
 pub use system::*;
@@ -629,7 +629,6 @@ macro_rules! component_bundle_impl {
         }
 
 
-        impl<'world_borrow, $($name: WorldBorrow<'world_borrow>),*> WorldBorrow<'world_borrow> for ($($name,)*){}
 
     }
 }
