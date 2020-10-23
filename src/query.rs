@@ -1,6 +1,6 @@
 use super::{
-    Archetype, FetchRead, FetchWrite, GetIter, GetSingle, GetSingleMut, TypeId, World,
-    WorldBorrowImmut, WorldBorrowMut,
+    Archetype, ChainedIterator, FetchRead, FetchWrite, GetIter, GetSingle, GetSingleMut, TypeId,
+    World,
 };
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -146,8 +146,15 @@ where
     <<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item: GetIter<'iter>,
 {
     type Iter = <<<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item as GetIter<'iter>>::Iter;
-    fn iter(&'iter mut self) -> Self::Iter {
-        self.borrow.iter()
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        self.borrow.get_iter()
+    }
+}
+
+impl<'iter, T: GetIter<'iter>> GetIter<'iter> for Vec<T> {
+    type Iter = ChainedIterator<<T as GetIter<'iter>>::Iter>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        ChainedIterator::new(self.iter_mut().map(|t| t.get_iter()).collect())
     }
 }
 
@@ -192,7 +199,7 @@ impl<'world_borrow, A: 'static> QueryParam for &mut A {
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
         #[allow(unused_parens)]
-        impl<$($name: QueryParam,)*> QueryParams for ($($name),*) {
+        impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {
             type Fetch = ($($name),*);
         }
 
@@ -232,8 +239,8 @@ macro_rules! entity_query_params_impl {
 
 //entity_query_params_impl! {}
 entity_query_params_impl! {A}
-/*
 entity_query_params_impl! {A, B}
+/*
 entity_query_params_impl! {A, B, C}
 entity_query_params_impl! {A, B, C, D}
 entity_query_params_impl! {A, B, C, D, E}

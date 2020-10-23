@@ -113,9 +113,9 @@ macro_rules! get_iter_impl {
         #[allow(non_snake_case)]
         impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
             type Iter = $zip_type<$($name::Iter,)*>;
-            fn iter(&'iter mut self) -> Self::Iter {
+            fn get_iter(&'iter mut self) -> Self::Iter {
                 let ($(ref mut $name,)*) = self;
-                $zip_type::new($($name.iter(),)*)
+                $zip_type::new($($name.get_iter(),)*)
             }
         }
     }
@@ -126,17 +126,17 @@ macro_rules! get_iter_impl {
 // library be used?
 impl<'iter, A: GetIter<'iter>> GetIter<'iter> for (A,) {
     type Iter = A::Iter;
-    fn iter(&'iter mut self) -> Self::Iter {
-        self.0.iter()
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        self.0.get_iter()
     }
 }
 
-// Implementing this for all tuples that implement GetIter is a pretty strong 
+// Implementing this for all tuples that implement GetIter is a pretty strong
 // assumption for a somewhat generic seeming trait.
 impl<'iter, A: GetIter<'iter>, B: GetIter<'iter>> GetIter<'iter> for (A, B) {
     type Iter = Zip<A::Iter, B::Iter>;
-    fn iter(&'iter mut self) -> Self::Iter {
-        self.0.iter().zip(self.1.iter())
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        self.0.get_iter().zip(self.1.get_iter())
     }
 }
 

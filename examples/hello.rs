@@ -20,7 +20,7 @@ fn main() {
     let mut query = world.query::<(&String, &Health)>().unwrap();
 
     // Iterate over all the components we found and check if their health is below 0.
-    for (name, health) in query.iter() {
+    for (name, health) in query.get_iter() {
         if health.0 <= 0 {
             println!("{} has perished!", name);
         }
