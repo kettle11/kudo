@@ -3,11 +3,12 @@ use super::{
     WorldBorrowImmut, WorldBorrowMut,
 };
 use std::ops::{Deref, DerefMut};
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// Get data from the world
 pub trait Fetch<'a> {
     type Item;
-    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()>;
+    fn get(world: &'a World, archetypes: usize) -> Result<Self::Item, ()>;
 }
 
 pub trait QueryParams {
@@ -21,9 +22,9 @@ impl<'world_borrow, T: 'static> TopLevelQuery for SingleMut<'world_borrow, T> {}
 
 impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
     type Item = Query<'a, T>;
-    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, archetype: usize) -> Result<Self::Item, ()> {
         Ok(Query {
-            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, &archetypes)?,
+            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, archetype)?,
             phantom: std::marker::PhantomData,
         })
     }
@@ -33,16 +34,16 @@ impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
 pub struct Single<'world_borrow, T> {
-    pub borrow: WorldBorrowImmut<'world_borrow, T>,
+    pub borrow: RwLockReadGuard<'world_borrow, Vec<T>>,
 }
 
 impl<'world_borrow, 'a, T> Single<'world_borrow, T> {
     pub fn get(&'a self) -> Option<&T> {
-        self.borrow.get()
+        self.borrow.get(0)
     }
 
     pub fn unwrap(&'a self) -> &'a T {
-        self.borrow.get().unwrap()
+        self.borrow.get(0).unwrap()
     }
 }
 
@@ -60,16 +61,16 @@ impl<'world_borrow, T> Deref for Single<'world_borrow, T> {
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
 pub struct SingleMut<'world_borrow, T> {
-    pub borrow: WorldBorrowMut<'world_borrow, T>,
+    pub borrow: RwLockWriteGuard<'world_borrow, Vec<T>>,
 }
 
 impl<'world_borrow, 'a, T> SingleMut<'world_borrow, T> {
     pub fn get(&'a mut self) -> Option<&mut T> {
-        self.borrow.get_mut()
+        self.borrow.get_mut(0)
     }
 
     pub fn unwrap(&'a mut self) -> &mut T {
-        self.borrow.get_mut().unwrap()
+        self.borrow.get_mut(0).unwrap()
     }
 }
 
@@ -77,19 +78,19 @@ impl<'world_borrow, T> Deref for SingleMut<'world_borrow, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.borrow.get().unwrap()
+        self.borrow.get(0).unwrap()
     }
 }
 
 impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.borrow.get_mut().unwrap()
+        self.unwrap()
     }
 }
 
 impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
     type Item = Single<'a, T>;
-    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ()> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -101,7 +102,7 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
 
         if let Some(archetype_index) = archetype_index {
             Ok(Single {
-                borrow: FetchRead::<T>::get(&world, &[archetype_index])?,
+                borrow: FetchRead::<T>::get(&world, archetype_index)?,
             })
         } else {
             Err(())
@@ -111,7 +112,7 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
 
 impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
     type Item = SingleMut<'a, T>;
-    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ()> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -123,7 +124,7 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 
         if let Some(archetype_index) = archetype_index {
             Ok(SingleMut {
-                borrow: FetchWrite::<T>::get(&world, &[archetype_index])?,
+                borrow: FetchWrite::<T>::get(&world, archetype_index)?,
             })
         } else {
             Err(())
@@ -133,6 +134,8 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 
 /// Query for entities with specific components.
 pub struct Query<'world_borrow, T: QueryParams> {
+    // Temporary Note: A query will have to store multiple archetype borrows in a row.
+    // The archetype borrow will be based on the QueryParams borrow type.
     pub borrow: <<T as QueryParams>::Fetch as Fetch<'world_borrow>>::Item,
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
@@ -195,8 +198,8 @@ macro_rules! entity_query_params_impl {
 
         #[allow(unused_parens)]
         impl<'world_borrow, $($name: QueryParam,)*> Fetch<'world_borrow> for ($($name),*) {
-            type Item = ($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item),*);
-            fn get(world: &'world_borrow World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+            type Item = Vec<($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item),*)>;
+            fn get(world: &'world_borrow World, _archetype: usize) -> Result<Self::Item, ()> {
                 #[cfg(debug_assertions)]
                 {
                     let mut types: Vec<TypeId> = Vec::new();
@@ -217,7 +220,11 @@ macro_rules! entity_query_params_impl {
                     }
                 }
 
-                Ok(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, &archetype_indices)?),*))
+                let mut result = Vec::with_capacity(archetype_indices.len());
+                for index in archetype_indices {
+                   result.push(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, index)?),*))
+                }
+                Ok(result)
             }
         }
     };
@@ -225,6 +232,7 @@ macro_rules! entity_query_params_impl {
 
 //entity_query_params_impl! {}
 entity_query_params_impl! {A}
+/*
 entity_query_params_impl! {A, B}
 entity_query_params_impl! {A, B, C}
 entity_query_params_impl! {A, B, C, D}
@@ -232,3 +240,4 @@ entity_query_params_impl! {A, B, C, D, E}
 entity_query_params_impl! {A, B, C, D, E, F}
 entity_query_params_impl! {A, B, C, D, E, F, G}
 entity_query_params_impl! {A, B, C, D, E, F, G, H}
+*/

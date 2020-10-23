@@ -38,7 +38,7 @@ macro_rules! system_impl {
         {
             #[allow(non_snake_case)]
             fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
-                $(let $name = <$name as Fetch<'world_borrow>>::get(world, &[])?;)*
+                $(let $name = <$name as Fetch<'world_borrow>>::get(world, 0)?;)*
 
                 self($($name,)*);
                 Ok(())

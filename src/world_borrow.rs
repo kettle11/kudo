@@ -30,14 +30,21 @@ pub struct FetchRead<T> {
 }
 
 impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
-    type Item = WorldBorrowImmut<'world_borrow, T>;
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+    type Item = RwLockReadGuard<'world_borrow, Vec<T>>;
+    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+        let archetype = &world.archetypes[archetype];
         let type_id = TypeId::of::<T>();
-        let mut query = WorldBorrowImmut::new(world);
-        for i in archetypes {
-            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
+
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == type_id)
+            .unwrap();
+        if let Ok(read_guard) = archetype.get(index).try_read() {
+            Ok(read_guard)
+        } else {
+            Err(())
         }
-        Ok(query)
     }
 }
 
@@ -46,14 +53,21 @@ pub struct FetchWrite<T> {
 }
 
 impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
-    type Item = WorldBorrowMut<'world_borrow, T>;
-    fn get(world: &'world_borrow World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+    type Item = RwLockWriteGuard<'world_borrow, Vec<T>>;
+    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+        let archetype = &world.archetypes[archetype];
         let type_id = TypeId::of::<T>();
-        let mut query = WorldBorrowMut::new(world);
-        for i in archetypes {
-            query.add_archetype(type_id, *i as EntityId, &world.archetypes[*i])?;
+
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == type_id)
+            .unwrap();
+        if let Ok(write_guard) = archetype.get(index).try_write() {
+            Ok(write_guard)
+        } else {
+            Err(())
         }
-        Ok(query)
     }
 }
 

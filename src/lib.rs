@@ -559,7 +559,7 @@ impl World {
     pub fn query<'world_borrow, T: QueryParams>(&'world_borrow self) -> Result<Query<T>, ()> {
         // unimplemented!()
         Ok(Query {
-            borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, &[])?,
+            borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, 0)?,
             phantom: std::marker::PhantomData,
         })
     }
