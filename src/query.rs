@@ -1,7 +1,4 @@
-use super::{
-    Archetype, ChainedIterator, FetchRead, FetchWrite, GetIter, GetSingle, GetSingleMut, TypeId,
-    World,
-};
+use super::{Archetype, ChainedIterator, FetchRead, FetchWrite, GetIter, TypeId, World};
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -134,7 +131,6 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 
 /// Query for entities with specific components.
 pub struct Query<'world_borrow, T: QueryParams> {
-    // Temporary Note: A query will have to store multiple archetype borrows in a row.
     // The archetype borrow will be based on the QueryParams borrow type.
     pub borrow: <<T as QueryParams>::Fetch as Fetch<'world_borrow>>::Item,
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
