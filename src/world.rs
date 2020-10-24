@@ -213,15 +213,18 @@ pub struct World {
 /// This entity has been despawned so operations can no longer
 /// be performed on it.
 #[derive(Debug)]
-pub struct EntityNoLongerInWorld(EntityId);
+pub struct NoSuchEntity;
 
-impl std::fmt::Display for EntityNoLongerInWorld {
+impl std::fmt::Display for NoSuchEntity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] does not exist so it cannot be despawned.", self.0)
+        write!(
+            f,
+            "The entity no longer exists so the operation cannot be performed"
+        )
     }
 }
 
-impl std::error::Error for EntityNoLongerInWorld {}
+impl std::error::Error for NoSuchEntity {}
 
 #[derive(Debug)]
 pub struct EntityMissingComponent(EntityId, &'static str);
@@ -246,7 +249,7 @@ impl std::error::Error for EntityMissingComponent {}
 
 pub enum ComponentError {
     EntityMissingComponent(EntityMissingComponent),
-    EntityNoLongerInWorld(EntityNoLongerInWorld),
+    NoSuchEntity(NoSuchEntity),
 }
 
 impl World {
@@ -299,7 +302,7 @@ impl World {
 
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
-    pub fn despawn(&mut self, entity: Entity) -> Result<(), EntityNoLongerInWorld> {
+    pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         // Remove an entity
         // Update swapped entity position if an entity was moved.
         let entity_info = self.entities[entity.index as usize];
@@ -314,7 +317,7 @@ impl World {
 
             Ok(())
         } else {
-            Err(EntityNoLongerInWorld(entity.index))
+            Err(NoSuchEntity)
         }
     }
 
@@ -331,9 +334,7 @@ impl World {
                 .map_err(|e| ComponentError::EntityMissingComponent(e))
         } else {
             // Entity no longer exists
-            Err(ComponentError::EntityNoLongerInWorld(
-                EntityNoLongerInWorld(entity.index),
-            ))
+            Err(ComponentError::NoSuchEntity(NoSuchEntity))
         }
     }
 
@@ -442,9 +443,7 @@ impl World {
             }
         } else {
             // Entity is not in world
-            Err(ComponentError::EntityNoLongerInWorld(
-                EntityNoLongerInWorld(entity.index),
-            ))
+            Err(ComponentError::NoSuchEntity(NoSuchEntity))
         }
     }
 
@@ -454,7 +453,7 @@ impl World {
         &mut self,
         entity: Entity,
         t: T,
-    ) -> Result<(), EntityNoLongerInWorld> {
+    ) -> Result<(), NoSuchEntity> {
         // In an archetypal ECS adding and removing components are the most expensive operations.
         // The volume of code in this function reflects that.
         // When a component is added the entity can be either migrated to a brand new archetype
@@ -569,7 +568,7 @@ impl World {
 
             Ok(())
         } else {
-            Err(EntityNoLongerInWorld(entity.index))
+            Err(NoSuchEntity)
         }
     }
 

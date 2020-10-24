@@ -3,6 +3,8 @@ use std::any::TypeId;
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
+#[doc(hidden)]
+
 /// Get data from the world
 pub trait Fetch<'a> {
     type Item;
@@ -26,8 +28,9 @@ impl std::fmt::Display for ComponentAlreadyBorrowed {
 
 impl std::error::Error for ComponentAlreadyBorrowed {}
 
-// A dummy struct is never constructed.
-// It is used to specify a Fetch trait.
+/// A dummy struct that is never constructed.
+/// It is used to specify a Fetch trait.
+#[doc(hidden)]
 pub struct FetchRead<T> {
     phantom: std::marker::PhantomData<T>,
 }
@@ -55,8 +58,9 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
     }
 }
 
-// A dummy struct is never constructed.
-// It is used to specify a Fetch trait.
+/// A dummy struct is never constructed.
+/// It is used to specify a Fetch trait.
+#[doc(hidden)]
 pub struct FetchWrite<T> {
     phantom: std::marker::PhantomData<T>,
 }
@@ -214,12 +218,14 @@ pub struct Query<'world_borrow, T: QueryParams> {
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
 
-impl<'world_borrow, 'iter, D: QueryParams> GetIter<'iter> for Query<'world_borrow, D>
+impl<'world_borrow, 'iter, D: QueryParams> Query<'world_borrow, D>
 where
     <<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item: GetIter<'iter>,
 {
-    type Iter = <<<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item as GetIter<'iter>>::Iter;
-    fn get_iter(&'iter mut self) -> Self::Iter {
+    /// Gets an iterator over the components in this `Query`.
+    pub fn iter(
+        &'iter mut self,
+    ) -> <<<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item as GetIter<'iter>>::Iter {
         self.borrow.get_iter()
     }
 }

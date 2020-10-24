@@ -1,8 +1,8 @@
 use std::iter::Zip;
 
 // GetIter is pretty much the standard library IntoIterator trait, but it uses a lifetime
-// instead of taking ownership. 
-// But maybe there's a way to use the standard library IntoIterator instead? 
+// instead of taking ownership.
+// But maybe there's a way to use the standard library IntoIterator instead?
 pub trait GetIter<'iter> {
     type Iter: Iterator;
 
@@ -62,6 +62,8 @@ impl_zip! {Zip6, Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, |(((((a, b), c), d),
 impl_zip! {Zip7, Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, |((((((a, b), c), d), e), f), g)| {(a, b, c, d, e, f, g)}, B, C, D, E, F, G}
 impl_zip! {Zip8, Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, |(((((((a, b), c), d), e), f), g), h)| {(a, b, c, d, e, f, g, h)}, B, C, D, E, F, G, H}
 
+#[doc(hidden)]
+/// A series of iterators of the same type that are traversed in a row.
 pub struct ChainedIterator<I: Iterator> {
     current_iter: Option<I>,
     iterators: Vec<I>,
