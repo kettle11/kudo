@@ -1,5 +1,22 @@
-use super::GetIter;
 use std::iter::Zip;
+
+// GetIter is pretty much the standard library IntoIterator trait, but it uses a lifetime
+// instead of taking ownership. 
+// But maybe there's a way to use the standard library IntoIterator instead? 
+pub trait GetIter<'iter> {
+    type Iter: Iterator;
+
+    // Named get_iter to disambiguate from into_iter
+    // But will be renamed because it's annoying.
+    fn get_iter(&'iter mut self) -> Self::Iter;
+}
+
+impl<'iter> GetIter<'iter> for () {
+    type Iter = std::iter::Empty<()>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        std::iter::empty()
+    }
+}
 
 // This first iterator wraps the standard library `Zip` iterator and flattens nested tuples
 // of values returned to a flat list.

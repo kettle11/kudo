@@ -1,4 +1,5 @@
-use super::{Archetype, ChainedIterator, FetchRead, FetchWrite, GetIter, TypeId, World};
+use super::{Archetype, ChainedIterator, GetIter, World};
+use std::any::TypeId;
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -6,6 +7,54 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 pub trait Fetch<'a> {
     type Item;
     fn get(world: &'a World, archetypes: usize) -> Result<Self::Item, ()>;
+}
+
+pub struct FetchRead<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+// Borrow a single component channel from an archetype.
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
+    type Item = RwLockReadGuard<'world_borrow, Vec<T>>;
+    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+        let archetype = &world.archetypes[archetype];
+        let type_id = TypeId::of::<T>();
+
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == type_id)
+            .unwrap();
+        if let Ok(read_guard) = archetype.get(index).try_read() {
+            Ok(read_guard)
+        } else {
+            Err(())
+        }
+    }
+}
+
+pub struct FetchWrite<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+// Immutably borrow a single component channel from an archetype.
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
+    type Item = RwLockWriteGuard<'world_borrow, Vec<T>>;
+    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+        let archetype = &world.archetypes[archetype];
+        let type_id = TypeId::of::<T>();
+
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == type_id)
+            .unwrap();
+        if let Ok(write_guard) = archetype.get(index).try_write() {
+            Ok(write_guard)
+        } else {
+            Err(())
+        }
+    }
 }
 
 pub trait QueryParams {
@@ -236,11 +285,9 @@ macro_rules! entity_query_params_impl {
 //entity_query_params_impl! {}
 entity_query_params_impl! {A}
 entity_query_params_impl! {A, B}
-/*
 entity_query_params_impl! {A, B, C}
 entity_query_params_impl! {A, B, C, D}
 entity_query_params_impl! {A, B, C, D, E}
 entity_query_params_impl! {A, B, C, D, E, F}
 entity_query_params_impl! {A, B, C, D, E, F, G}
 entity_query_params_impl! {A, B, C, D, E, F, G, H}
-*/
