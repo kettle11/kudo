@@ -1,19 +1,72 @@
-use super::{
-    Archetype, FetchRead, FetchWrite, GetIter, GetSingle, GetSingleMut, TypeId, World,
-    WorldBorrowImmut, WorldBorrowMut,
-};
+use super::{Archetype, ChainedIterator, GetIter, World};
+use std::any::TypeId;
 use std::ops::{Deref, DerefMut};
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// Get data from the world
 pub trait Fetch<'a> {
     type Item;
-    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()>;
+    fn get(world: &'a World, archetypes: usize) -> Result<Self::Item, ()>;
 }
 
+// A dummy struct is never constructed.
+// It is used to specify a Fetch trait.
+pub struct FetchRead<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+// Borrow a single component channel from an archetype.
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
+    type Item = RwLockReadGuard<'world_borrow, Vec<T>>;
+    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+        let archetype = &world.archetypes[archetype];
+        let type_id = TypeId::of::<T>();
+
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == type_id)
+            .unwrap();
+        if let Ok(read_guard) = archetype.get(index).try_read() {
+            Ok(read_guard)
+        } else {
+            Err(())
+        }
+    }
+}
+
+// A dummy struct is never constructed.
+// It is used to specify a Fetch trait.
+pub struct FetchWrite<T> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+// Immutably borrow a single component channel from an archetype.
+impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
+    type Item = RwLockWriteGuard<'world_borrow, Vec<T>>;
+    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+        let archetype = &world.archetypes[archetype];
+        let type_id = TypeId::of::<T>();
+
+        let index = archetype
+            .components
+            .iter()
+            .position(|c| c.type_id == type_id)
+            .unwrap();
+        if let Ok(write_guard) = archetype.get(index).try_write() {
+            Ok(write_guard)
+        } else {
+            Err(())
+        }
+    }
+}
+
+/// The parameters passed into a query. Like: `(&bool, &String)`
 pub trait QueryParams {
     type Fetch: for<'a> Fetch<'a>;
 }
 
+/// An empty trait used to indicate which queries can be constructed at the top level of a query.
 pub trait TopLevelQuery: for<'a> Fetch<'a> {}
 impl<'world_borrow, T: QueryParams> TopLevelQuery for Query<'world_borrow, T> {}
 impl<'world_borrow, T: 'static> TopLevelQuery for Single<'world_borrow, T> {}
@@ -21,9 +74,9 @@ impl<'world_borrow, T: 'static> TopLevelQuery for SingleMut<'world_borrow, T> {}
 
 impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
     type Item = Query<'a, T>;
-    fn get(world: &'a World, archetypes: &[usize]) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, archetype: usize) -> Result<Self::Item, ()> {
         Ok(Query {
-            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, &archetypes)?,
+            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, archetype)?,
             phantom: std::marker::PhantomData,
         })
     }
@@ -33,16 +86,16 @@ impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
 pub struct Single<'world_borrow, T> {
-    pub borrow: WorldBorrowImmut<'world_borrow, T>,
+    pub borrow: RwLockReadGuard<'world_borrow, Vec<T>>,
 }
 
 impl<'world_borrow, 'a, T> Single<'world_borrow, T> {
     pub fn get(&'a self) -> Option<&T> {
-        self.borrow.get()
+        self.borrow.get(0)
     }
 
     pub fn unwrap(&'a self) -> &'a T {
-        self.borrow.get().unwrap()
+        self.borrow.get(0).unwrap()
     }
 }
 
@@ -60,16 +113,16 @@ impl<'world_borrow, T> Deref for Single<'world_borrow, T> {
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
 pub struct SingleMut<'world_borrow, T> {
-    pub borrow: WorldBorrowMut<'world_borrow, T>,
+    pub borrow: RwLockWriteGuard<'world_borrow, Vec<T>>,
 }
 
 impl<'world_borrow, 'a, T> SingleMut<'world_borrow, T> {
     pub fn get(&'a mut self) -> Option<&mut T> {
-        self.borrow.get_mut()
+        self.borrow.get_mut(0)
     }
 
     pub fn unwrap(&'a mut self) -> &mut T {
-        self.borrow.get_mut().unwrap()
+        self.borrow.get_mut(0).unwrap()
     }
 }
 
@@ -77,19 +130,19 @@ impl<'world_borrow, T> Deref for SingleMut<'world_borrow, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.borrow.get().unwrap()
+        self.borrow.get(0).unwrap()
     }
 }
 
 impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.borrow.get_mut().unwrap()
+        self.unwrap()
     }
 }
 
 impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
     type Item = Single<'a, T>;
-    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ()> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -101,7 +154,7 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
 
         if let Some(archetype_index) = archetype_index {
             Ok(Single {
-                borrow: FetchRead::<T>::get(&world, &[archetype_index])?,
+                borrow: FetchRead::<T>::get(&world, archetype_index)?,
             })
         } else {
             Err(())
@@ -111,7 +164,7 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
 
 impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
     type Item = SingleMut<'a, T>;
-    fn get(world: &'a World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ()> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -123,7 +176,7 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 
         if let Some(archetype_index) = archetype_index {
             Ok(SingleMut {
-                borrow: FetchWrite::<T>::get(&world, &[archetype_index])?,
+                borrow: FetchWrite::<T>::get(&world, archetype_index)?,
             })
         } else {
             Err(())
@@ -133,18 +186,39 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 
 /// Query for entities with specific components.
 pub struct Query<'world_borrow, T: QueryParams> {
+    // The archetype borrow will be based on the QueryParams borrow type.
     pub borrow: <<T as QueryParams>::Fetch as Fetch<'world_borrow>>::Item,
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
 
-// I'm skeptical of the lifetimes here.
 impl<'world_borrow, 'iter, D: QueryParams> GetIter<'iter> for Query<'world_borrow, D>
 where
     <<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item: GetIter<'iter>,
 {
     type Iter = <<<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item as GetIter<'iter>>::Iter;
-    fn iter(&'iter mut self) -> Self::Iter {
-        self.borrow.iter()
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        self.borrow.get_iter()
+    }
+}
+
+impl<'iter, T: GetIter<'iter>> GetIter<'iter> for Vec<T> {
+    type Iter = ChainedIterator<<T as GetIter<'iter>>::Iter>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        ChainedIterator::new(self.iter_mut().map(|t| t.get_iter()).collect())
+    }
+}
+
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockReadGuard<'world_borrow, Vec<T>> {
+    type Iter = std::slice::Iter<'iter, T>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        <[T]>::iter(self)
+    }
+}
+
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockWriteGuard<'world_borrow, Vec<T>> {
+    type Iter = std::slice::IterMut<'iter, T>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        <[T]>::iter_mut(self)
     }
 }
 
@@ -186,17 +260,21 @@ impl<'world_borrow, A: 'static> QueryParam for &mut A {
     }
 }
 
+impl<A: QueryParam> QueryParams for A {
+    type Fetch = A;
+}
+
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
         #[allow(unused_parens)]
-        impl<$($name: QueryParam,)*> QueryParams for ($($name),*) {
+        impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {
             type Fetch = ($($name),*);
         }
 
         #[allow(unused_parens)]
         impl<'world_borrow, $($name: QueryParam,)*> Fetch<'world_borrow> for ($($name),*) {
-            type Item = ($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item),*);
-            fn get(world: &'world_borrow World, _archetypes: &[usize]) -> Result<Self::Item, ()> {
+            type Item = Vec<($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item),*)>;
+            fn get(world: &'world_borrow World, _archetype: usize) -> Result<Self::Item, ()> {
                 #[cfg(debug_assertions)]
                 {
                     let mut types: Vec<TypeId> = Vec::new();
@@ -217,7 +295,11 @@ macro_rules! entity_query_params_impl {
                     }
                 }
 
-                Ok(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, &archetype_indices)?),*))
+                let mut result = Vec::with_capacity(archetype_indices.len());
+                for index in archetype_indices {
+                   result.push(($(<<$name as QueryParam>::Fetch as Fetch>::get(world, index)?),*))
+                }
+                Ok(result)
             }
         }
     };

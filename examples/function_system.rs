@@ -29,12 +29,12 @@ fn print_names(
     mut creepy_hair: Query<(&Name, &CreepySnakeHair)>,
 ) {
     // Iterate through all entities with those components.
-    for (name, health) in query.iter() {
+    for (name, health) in query.get_iter() {
         println!("{}'s health is: {:?}", name.0, health.0);
     }
 
     // Iterate through all entities with those components.
-    for (name, _) in creepy_hair.iter() {
+    for (name, _) in creepy_hair.get_iter() {
         println!("{} has creepy snake hair", name.0);
     }
 }
