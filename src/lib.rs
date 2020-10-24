@@ -37,13 +37,11 @@
 //! }
 //! ```
 
-mod archetype_borrow;
 mod iterators;
 mod query;
 mod system;
 mod world;
 
-pub use archetype_borrow::*;
 pub use iterators::*;
 pub use query::*;
 pub use system::*;

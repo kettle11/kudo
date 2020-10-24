@@ -1,3 +1,13 @@
+//! The hierarchy that builds the world is the following
+//! World
+//!     * Various entitiy metadata
+//!     Vec<Archetype>
+//!         components: Vec<ComponentStore>
+//!             TypeId
+//!             ComponentVec (which can be downcast into a RwLock<Vec<T>>
+//!
+//! The world contains entity metadata and archetypes.
+//! Archetypes contain Vecs of component data.
 use super::{Fetch, Query, QueryParams};
 
 use std::any::{Any, TypeId};
@@ -8,6 +18,8 @@ use std::sync::RwLock;
 // This can be used to easily change the size of an EntityId.
 type EntityId = u32;
 
+/// The ComponentVec trait is used to define a set of things that can be done on
+/// an Any without knowing its exact type.
 trait ComponentVec {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
@@ -233,7 +245,7 @@ impl World {
             ((self.entities.len() - 1) as EntityId, 0)
         };
 
-        let location = b.add_to_world(self, index);
+        let location = b.spawn_in_world(self, index);
 
         self.entities[index as usize] = EntityInfo {
             location,
@@ -508,6 +520,13 @@ impl World {
         }
     }
 
+    /// Get a query from the world.
+    /// # Example
+    /// ```
+    /// # use kudo::*;
+    /// # let mut world = World::new();
+    /// let query = world.query<(&bool, &String)>();
+    /// ```
     pub fn query<'world_borrow, T: QueryParams>(&'world_borrow self) -> Result<Query<T>, ()> {
         Ok(Query {
             borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, 0)?,
@@ -517,15 +536,15 @@ impl World {
 }
 
 /// A bundle of components
+/// Used to spawn new
 pub trait ComponentBundle {
     #[doc(hidden)]
     fn new_archetype() -> Archetype;
     #[doc(hidden)]
-    fn add_to_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation;
+    fn spawn_in_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation;
 }
 
 fn calculate_bundle_id(types: &[TypeId]) -> u64 {
-    // Calculate the bundle ID
     let mut s = DefaultHasher::new();
     types.hash(&mut s);
     s.finish()
@@ -540,7 +559,7 @@ macro_rules! component_bundle_impl {
                 Archetype { components, entities: Vec::new() }
             }
 
-            fn add_to_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation {
+            fn spawn_in_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation {
                 let mut types = [$(($index, TypeId::of::<$name>())), *];
                 types.sort_unstable_by(|a, b| a.1.cmp(&b.1));
                 debug_assert!(

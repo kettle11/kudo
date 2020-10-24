@@ -203,6 +203,20 @@ impl<'iter, T: GetIter<'iter>> GetIter<'iter> for Vec<T> {
     }
 }
 
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockReadGuard<'world_borrow, Vec<T>> {
+    type Iter = std::slice::Iter<'iter, T>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        <[T]>::iter(self)
+    }
+}
+
+impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockWriteGuard<'world_borrow, Vec<T>> {
+    type Iter = std::slice::IterMut<'iter, T>;
+    fn get_iter(&'iter mut self) -> Self::Iter {
+        <[T]>::iter_mut(self)
+    }
+}
+
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait QueryParam {
     type Fetch: for<'a> Fetch<'a>;
