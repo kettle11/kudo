@@ -8,7 +8,7 @@
 //!
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
-use super::{Fetch, Query, QueryParams};
+use super::{ComponentAlreadyBorrowed, Fetch, Query, QueryParams};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -138,7 +138,10 @@ impl Archetype {
         self.mutable_component_store(component_index).push(t)
     }
 
-    fn get_component_mut<T: 'static>(&mut self, index: EntityId) -> Result<&mut T, ()> {
+    fn get_component_mut<T: 'static>(
+        &mut self,
+        index: EntityId,
+    ) -> Result<&mut T, EntityMissingComponent> {
         let type_id = TypeId::of::<T>();
         let mut component_index = None;
         for (i, c) in self.components.iter().enumerate() {
@@ -151,7 +154,7 @@ impl Archetype {
         if let Some(component_index) = component_index {
             Ok(&mut self.mutable_component_store(component_index)[index as usize])
         } else {
-            Err(())
+            Err(EntityMissingComponent::new::<T>(index))
         }
     }
 
@@ -207,6 +210,45 @@ pub struct World {
     free_entities: Vec<EntityId>,
 }
 
+/// This entity has been despawned so operations can no longer
+/// be performed on it.
+#[derive(Debug)]
+pub struct EntityNoLongerInWorld(EntityId);
+
+impl std::fmt::Display for EntityNoLongerInWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] does not exist so it cannot be despawned.", self.0)
+    }
+}
+
+impl std::error::Error for EntityNoLongerInWorld {}
+
+#[derive(Debug)]
+pub struct EntityMissingComponent(EntityId, &'static str);
+
+impl EntityMissingComponent {
+    pub fn new<T>(entity_id: EntityId) -> Self {
+        Self(entity_id, std::any::type_name::<T>())
+    }
+}
+
+impl std::fmt::Display for EntityMissingComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Entity {:?} does not have a [{}] component",
+            self.0, self.1
+        )
+    }
+}
+
+impl std::error::Error for EntityMissingComponent {}
+
+pub enum ComponentError {
+    EntityMissingComponent(EntityMissingComponent),
+    EntityNoLongerInWorld(EntityNoLongerInWorld),
+}
+
 impl World {
     /// Create the world.
     pub fn new() -> Self {
@@ -257,7 +299,7 @@ impl World {
 
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
-    pub fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
+    pub fn despawn(&mut self, entity: Entity) -> Result<(), EntityNoLongerInWorld> {
         // Remove an entity
         // Update swapped entity position if an entity was moved.
         let entity_info = self.entities[entity.index as usize];
@@ -272,19 +314,26 @@ impl World {
 
             Ok(())
         } else {
-            Err(())
+            Err(EntityNoLongerInWorld(entity.index))
         }
     }
 
     /// Gets mutable access to a single component on an `Entity`.
-    pub fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Result<&mut T, ()> {
+    pub fn get_component_mut<T: 'static>(
+        &mut self,
+        entity: Entity,
+    ) -> Result<&mut T, ComponentError> {
         let entity_info = self.entities[entity.index as usize];
         if entity_info.generation == entity.generation {
             let archetype = &mut self.archetypes[entity_info.location.archetype_index as usize];
-            archetype.get_component_mut(entity_info.location.index_in_archetype)
+            archetype
+                .get_component_mut(entity_info.location.index_in_archetype)
+                .map_err(|e| ComponentError::EntityMissingComponent(e))
         } else {
             // Entity no longer exists
-            Err(())
+            Err(ComponentError::EntityNoLongerInWorld(
+                EntityNoLongerInWorld(entity.index),
+            ))
         }
     }
 
@@ -297,7 +346,7 @@ impl World {
     /// let entity = world.spawn((456, true));
     /// let b = world.remove_component::<bool>(entity).unwrap();
     /// ```
-    pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Result<T, ()> {
+    pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
         let entity_info = self.entities[entity.index as usize];
 
         if entity_info.generation == entity.generation {
@@ -387,11 +436,15 @@ impl World {
                 )
             } else {
                 // Component is not in entity
-                Err(())
+                Err(ComponentError::EntityMissingComponent(
+                    EntityMissingComponent::new::<T>(entity.index),
+                ))
             }
         } else {
             // Entity is not in world
-            Err(())
+            Err(ComponentError::EntityNoLongerInWorld(
+                EntityNoLongerInWorld(entity.index),
+            ))
         }
     }
 
@@ -401,7 +454,7 @@ impl World {
         &mut self,
         entity: Entity,
         t: T,
-    ) -> Result<(), ()> {
+    ) -> Result<(), EntityNoLongerInWorld> {
         // In an archetypal ECS adding and removing components are the most expensive operations.
         // The volume of code in this function reflects that.
         // When a component is added the entity can be either migrated to a brand new archetype
@@ -516,7 +569,7 @@ impl World {
 
             Ok(())
         } else {
-            Err(())
+            Err(EntityNoLongerInWorld(entity.index))
         }
     }
 
@@ -527,7 +580,9 @@ impl World {
     /// # let mut world = World::new();
     /// let query = world.query<(&bool, &String)>();
     /// ```
-    pub fn query<'world_borrow, T: QueryParams>(&'world_borrow self) -> Result<Query<T>, ()> {
+    pub fn query<'world_borrow, T: QueryParams>(
+        &'world_borrow self,
+    ) -> Result<Query<T>, ComponentAlreadyBorrowed> {
         Ok(Query {
             borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, 0)?,
             phantom: std::marker::PhantomData,

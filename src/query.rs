@@ -6,8 +6,25 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 /// Get data from the world
 pub trait Fetch<'a> {
     type Item;
-    fn get(world: &'a World, archetypes: usize) -> Result<Self::Item, ()>;
+    fn get(world: &'a World, archetypes: usize) -> Result<Self::Item, ComponentAlreadyBorrowed>;
 }
+
+#[derive(Debug)]
+pub struct ComponentAlreadyBorrowed(&'static str);
+
+impl ComponentAlreadyBorrowed {
+    pub fn new<T>() -> Self {
+        Self(std::any::type_name::<T>())
+    }
+}
+
+impl std::fmt::Display for ComponentAlreadyBorrowed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] is already borrowed from the archetype", self.0)
+    }
+}
+
+impl std::error::Error for ComponentAlreadyBorrowed {}
 
 // A dummy struct is never constructed.
 // It is used to specify a Fetch trait.
@@ -18,7 +35,10 @@ pub struct FetchRead<T> {
 // Borrow a single component channel from an archetype.
 impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
     type Item = RwLockReadGuard<'world_borrow, Vec<T>>;
-    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+    fn get(
+        world: &'world_borrow World,
+        archetype: usize,
+    ) -> Result<Self::Item, ComponentAlreadyBorrowed> {
         let archetype = &world.archetypes[archetype];
         let type_id = TypeId::of::<T>();
 
@@ -30,7 +50,7 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
         if let Ok(read_guard) = archetype.get(index).try_read() {
             Ok(read_guard)
         } else {
-            Err(())
+            Err(ComponentAlreadyBorrowed::new::<T>())
         }
     }
 }
@@ -44,7 +64,10 @@ pub struct FetchWrite<T> {
 // Immutably borrow a single component channel from an archetype.
 impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
     type Item = RwLockWriteGuard<'world_borrow, Vec<T>>;
-    fn get(world: &'world_borrow World, archetype: usize) -> Result<Self::Item, ()> {
+    fn get(
+        world: &'world_borrow World,
+        archetype: usize,
+    ) -> Result<Self::Item, ComponentAlreadyBorrowed> {
         let archetype = &world.archetypes[archetype];
         let type_id = TypeId::of::<T>();
 
@@ -56,7 +79,7 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
         if let Ok(write_guard) = archetype.get(index).try_write() {
             Ok(write_guard)
         } else {
-            Err(())
+            Err(ComponentAlreadyBorrowed::new::<T>())
         }
     }
 }
@@ -74,7 +97,7 @@ impl<'world_borrow, T: 'static> TopLevelQuery for SingleMut<'world_borrow, T> {}
 
 impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
     type Item = Query<'a, T>;
-    fn get(world: &'a World, archetype: usize) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, archetype: usize) -> Result<Self::Item, ComponentAlreadyBorrowed> {
         Ok(Query {
             borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::get(&world, archetype)?,
             phantom: std::marker::PhantomData,
@@ -142,7 +165,7 @@ impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
 
 impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
     type Item = Single<'a, T>;
-    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ComponentAlreadyBorrowed> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -157,14 +180,14 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
                 borrow: FetchRead::<T>::get(&world, archetype_index)?,
             })
         } else {
-            Err(())
+            Err(ComponentAlreadyBorrowed::new::<T>())
         }
     }
 }
 
 impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
     type Item = SingleMut<'a, T>;
-    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ()> {
+    fn get(world: &'a World, _archetypes: usize) -> Result<Self::Item, ComponentAlreadyBorrowed> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -179,7 +202,7 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
                 borrow: FetchWrite::<T>::get(&world, archetype_index)?,
             })
         } else {
-            Err(())
+            Err(ComponentAlreadyBorrowed::new::<T>())
         }
     }
 }
@@ -274,7 +297,7 @@ macro_rules! entity_query_params_impl {
         #[allow(unused_parens)]
         impl<'world_borrow, $($name: QueryParam,)*> Fetch<'world_borrow> for ($($name),*) {
             type Item = Vec<($(<<$name as QueryParam>::Fetch as Fetch<'world_borrow>>::Item),*)>;
-            fn get(world: &'world_borrow World, _archetype: usize) -> Result<Self::Item, ()> {
+            fn get(world: &'world_borrow World, _archetype: usize) -> Result<Self::Item, ComponentAlreadyBorrowed> {
                 #[cfg(debug_assertions)]
                 {
                     let mut types: Vec<TypeId> = Vec::new();

@@ -1,4 +1,4 @@
-use super::{Fetch, TopLevelQuery, World};
+use super::{ComponentAlreadyBorrowed, Fetch, TopLevelQuery, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -24,8 +24,8 @@ use super::{Fetch, TopLevelQuery, World};
 /// my_system.run(&world).unwrap();
 /// ```
 pub trait System<A> {
-    fn run(self, world: &World) -> Result<(), ()>;
-    fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>>;
+    fn run(self, world: &World) -> Result<(), ComponentAlreadyBorrowed>;
+    fn system(self) -> Box<dyn Fn(&World) -> Result<(), ComponentAlreadyBorrowed>>;
 }
 
 // The value accepted as part of a function should be different from the SystemQuery passed in.
@@ -37,13 +37,13 @@ macro_rules! system_impl {
             FUNC: Fn($($name,)*) + Fn($(<$name as Fetch>::Item,)*) + 'static + Copy,
         {
             #[allow(non_snake_case)]
-            fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ()> {
+            fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), ComponentAlreadyBorrowed> {
                 $(let $name = <$name as Fetch<'world_borrow>>::get(world, 0)?;)*
 
                 self($($name,)*);
                 Ok(())
             }
-            fn system(self) -> Box<dyn Fn(&World) -> Result<(), ()>> {
+            fn system(self) -> Box<dyn Fn(&World) -> Result<(), ComponentAlreadyBorrowed>> {
                 Box::new(move|world|
                     self.run(world)
                 )
