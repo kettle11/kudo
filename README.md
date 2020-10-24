@@ -36,4 +36,4 @@ for (name, health) in query.iter() {
 }
 ```
 
-`Kudo` was inspired by the library [`hecs`](https://github.com/Ralith/hecs). If you need a more feature rich ECS, give `hecs` a try!
+`Kudo` was inspired by the library [`hecs`](https://github.com/Ralith/hecs). If you need a more feature-rich ECS, give `hecs` a try!
