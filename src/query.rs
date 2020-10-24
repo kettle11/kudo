@@ -9,6 +9,8 @@ pub trait Fetch<'a> {
     fn get(world: &'a World, archetypes: usize) -> Result<Self::Item, ()>;
 }
 
+// A dummy struct is never constructed.
+// It is used to specify a Fetch trait.
 pub struct FetchRead<T> {
     phantom: std::marker::PhantomData<T>,
 }
@@ -33,6 +35,8 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchRead<T> {
     }
 }
 
+// A dummy struct is never constructed.
+// It is used to specify a Fetch trait.
 pub struct FetchWrite<T> {
     phantom: std::marker::PhantomData<T>,
 }
@@ -57,10 +61,12 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for FetchWrite<T> {
     }
 }
 
+/// The parameters passed into a query. Like: `(&bool, &String)`
 pub trait QueryParams {
     type Fetch: for<'a> Fetch<'a>;
 }
 
+/// An empty trait used to indicate which queries can be constructed at the top level of a query.
 pub trait TopLevelQuery: for<'a> Fetch<'a> {}
 impl<'world_borrow, T: QueryParams> TopLevelQuery for Query<'world_borrow, T> {}
 impl<'world_borrow, T: 'static> TopLevelQuery for Single<'world_borrow, T> {}
@@ -185,7 +191,6 @@ pub struct Query<'world_borrow, T: QueryParams> {
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
 
-// I'm skeptical of the lifetimes here.
 impl<'world_borrow, 'iter, D: QueryParams> GetIter<'iter> for Query<'world_borrow, D>
 where
     <<D as QueryParams>::Fetch as Fetch<'world_borrow>>::Item: GetIter<'iter>,
@@ -253,6 +258,10 @@ impl<'world_borrow, A: 'static> QueryParam for &mut A {
         let type_id = TypeId::of::<A>();
         archetype.components.iter().any(|c| c.type_id == type_id)
     }
+}
+
+impl<A: QueryParam> QueryParams for A {
+    type Fetch = A;
 }
 
 macro_rules! entity_query_params_impl {
