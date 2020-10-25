@@ -8,7 +8,7 @@
 //!
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
-use super::{ComponentAlreadyBorrowed, Fetch, Query, QueryParams};
+use super::{ComponentAlreadyBorrowed, Fetch, Query, QueryParams, Single, SingleMut};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -571,6 +571,20 @@ impl World {
         } else {
             Err(NoSuchEntity)
         }
+    }
+
+    /// Query for an immutable reference to the first instance of a component found.
+    pub fn get_single<'world_borrow, T: 'static>(
+        &'world_borrow self,
+    ) -> Result<Single<T>, ComponentAlreadyBorrowed> {
+        <Single<T> as Fetch>::get(self, 0)
+    }
+
+    /// Query for a mutable reference to the first instance of a component found.
+    pub fn get_single_mut<'world_borrow, T: 'static>(
+        &'world_borrow self,
+    ) -> Result<SingleMut<T>, ComponentAlreadyBorrowed> {
+        <SingleMut<T> as Fetch>::get(self, 0)
     }
 
     /// Get a query from the world.
