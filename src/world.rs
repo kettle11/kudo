@@ -247,6 +247,7 @@ impl std::fmt::Display for EntityMissingComponent {
 
 impl std::error::Error for EntityMissingComponent {}
 
+#[derive(Debug)]
 pub enum ComponentError {
     EntityMissingComponent(EntityMissingComponent),
     NoSuchEntity(NoSuchEntity),
