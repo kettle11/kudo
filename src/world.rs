@@ -20,7 +20,7 @@ type EntityId = u32;
 
 /// The ComponentVec trait is used to define a set of things that can be done on
 /// an Any without knowing its exact type.
-trait ComponentVec {
+trait ComponentVec: Sync + Send {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
     fn len(&mut self) -> usize;
@@ -574,16 +574,12 @@ impl World {
     }
 
     /// Query for an immutable reference to the first instance of a component found.
-    pub fn get_single<'world_borrow, T: 'static>(
-        &'world_borrow self,
-    ) -> Result<Single<T>, ComponentAlreadyBorrowed> {
+    pub fn get_single<T: 'static>(&self) -> Result<Single<T>, ComponentAlreadyBorrowed> {
         <Single<T> as Fetch>::get(self, 0)
     }
 
     /// Query for a mutable reference to the first instance of a component found.
-    pub fn get_single_mut<'world_borrow, T: 'static>(
-        &'world_borrow self,
-    ) -> Result<SingleMut<T>, ComponentAlreadyBorrowed> {
+    pub fn get_single_mut<T: 'static>(&self) -> Result<SingleMut<T>, ComponentAlreadyBorrowed> {
         <SingleMut<T> as Fetch>::get(self, 0)
     }
 
@@ -594,9 +590,7 @@ impl World {
     /// # let mut world = World::new();
     /// let query = world.query<(&bool, &String)>();
     /// ```
-    pub fn query<'world_borrow, T: QueryParams>(
-        &'world_borrow self,
-    ) -> Result<Query<T>, ComponentAlreadyBorrowed> {
+    pub fn query<T: QueryParams>(&self) -> Result<Query<T>, ComponentAlreadyBorrowed> {
         Ok(Query {
             borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, 0)?,
             phantom: std::marker::PhantomData,
