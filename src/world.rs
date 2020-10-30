@@ -18,6 +18,8 @@ use std::sync::RwLock;
 // This can be used to easily change the size of an EntityId.
 type EntityId = u32;
 
+pub trait Component: Sync + Send + 'static {}
+impl<T: Sync + Send + 'static> Component for T {}
 /// The ComponentVec trait is used to define a set of things that can be done on
 /// an Any without knowing its exact type.
 trait ComponentVec: Sync + Send {
@@ -29,7 +31,7 @@ trait ComponentVec: Sync + Send {
     fn new_same_type(&self) -> Box<dyn ComponentVec + Send + Sync>;
 }
 
-impl<T: 'static + Send + Sync> ComponentVec for RwLock<Vec<T>> {
+impl<T: Component> ComponentVec for RwLock<Vec<T>> {
     fn to_any(&self) -> &dyn Any {
         self
     }
@@ -600,9 +602,9 @@ impl World {
 
 /// A bundle of components
 /// Used to spawn new
-pub trait ComponentBundle {
+pub trait ComponentBundle: 'static {
     #[doc(hidden)]
-    fn new_archetype() -> Archetype;
+    fn new_archetype(&self) -> Archetype;
     #[doc(hidden)]
     fn spawn_in_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation;
 }
@@ -616,7 +618,7 @@ fn calculate_bundle_id(types: &[TypeId]) -> u64 {
 macro_rules! component_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
         impl< $($name: 'static + Send + Sync),*> ComponentBundle for ($($name,)*) {
-            fn new_archetype() -> Archetype {
+            fn new_archetype(&self) -> Archetype {
                 let mut components = vec![$(ComponentStore::new::<$name>()), *];
                 components.sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
                 Archetype { components, entities: Vec::new() }
@@ -644,7 +646,7 @@ macro_rules! component_bundle_impl {
                 let archetype_index = if let Some(archetype) = world.bundle_id_to_archetype.get(&bundle_id) {
                     *archetype
                 } else {
-                    let archetype = Self::new_archetype();
+                    let archetype = self.new_archetype();
                     let index = world.archetypes.len();
 
                     world.bundle_id_to_archetype.insert(bundle_id, index);
