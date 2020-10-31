@@ -179,7 +179,12 @@ impl Archetype {
     /// This takes a mutable reference so that the inner RwLock does not need to be locked
     /// by instead using get_mut.
     fn len(&mut self) -> usize {
-        self.components[0].len()
+        // If this archetype has no components its length is 0
+        if self.components.is_empty() {
+            0
+        } else {
+            self.components[0].len()
+        }
     }
 }
 
@@ -192,23 +197,23 @@ pub struct EntityLocation {
 }
 
 #[derive(Clone, Copy)]
-struct EntityInfo {
-    generation: EntityId,
+pub(crate) struct EntityInfo {
+    pub(crate) generation: EntityId,
     location: EntityLocation,
 }
 
 /// A handle to an entity within the world.
 #[derive(Debug, Clone, Copy, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Entity {
-    index: EntityId,
-    generation: EntityId,
+    pub(crate) index: EntityId,
+    pub(crate) generation: EntityId,
 }
 
 /// The world holds all components and associated entities.
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
     bundle_id_to_archetype: HashMap<u64, usize>,
-    entities: Vec<EntityInfo>,
+    pub(crate) entities: Vec<EntityInfo>,
     free_entities: Vec<EntityId>,
 }
 
@@ -602,7 +607,7 @@ impl World {
 
 /// A bundle of components
 /// Used to spawn new
-pub trait ComponentBundle: 'static {
+pub trait ComponentBundle: 'static + Send + Sync {
     #[doc(hidden)]
     fn new_archetype(&self) -> Archetype;
     #[doc(hidden)]

@@ -1,4 +1,4 @@
-use super::{Archetype, ChainedIterator, GetIter, World};
+use super::{Archetype, ChainedIterator, Entity, GetIter, World};
 use std::any::TypeId;
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -134,6 +134,7 @@ impl<'a, T: QueryParams> Fetch<'a> for Query<'_, T> {
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
 pub struct Single<'world_borrow, T> {
+    entity: Entity,
     pub borrow: RwLockReadGuard<'world_borrow, Vec<T>>,
 }
 
@@ -144,6 +145,10 @@ impl<'world_borrow, 'a, T> Single<'world_borrow, T> {
 
     pub fn unwrap(&'a self) -> &'a T {
         self.borrow.get(0).unwrap()
+    }
+
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 }
 
@@ -161,6 +166,7 @@ impl<'world_borrow, T> Deref for Single<'world_borrow, T> {
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
 pub struct SingleMut<'world_borrow, T> {
+    entity: Entity,
     pub borrow: RwLockWriteGuard<'world_borrow, Vec<T>>,
 }
 
@@ -171,6 +177,10 @@ impl<'world_borrow, 'a, T> SingleMut<'world_borrow, T> {
 
     pub fn unwrap(&'a mut self) -> &mut T {
         self.borrow.get_mut(0).unwrap()
+    }
+
+    pub fn entity(&self) -> Entity {
+        self.entity
     }
 }
 
@@ -201,7 +211,12 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
         }
 
         if let Some(archetype_index) = archetype_index {
+            // This feels a bit messy to just get the entity.
+            let index = world.archetypes[archetype_index].entities[0];
+            let generation = world.entities[index as usize].generation;
+            let entity = Entity { index, generation };
             Ok(Single {
+                entity,
                 borrow: FetchRead::<T>::get(&world, archetype_index)?,
             })
         } else {
@@ -225,7 +240,12 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
         }
 
         if let Some(archetype_index) = archetype_index {
+            // This feels a bit messy to just get the entity.
+            let index = world.archetypes[archetype_index].entities[0];
+            let generation = world.entities[index as usize].generation;
+            let entity = Entity { index, generation };
             Ok(SingleMut {
+                entity,
                 borrow: FetchWrite::<T>::get(&world, archetype_index)?,
             })
         } else {
