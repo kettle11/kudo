@@ -138,14 +138,16 @@ pub struct Single<'world_borrow, T> {
     pub borrow: RwLockReadGuard<'world_borrow, Vec<T>>,
 }
 
-impl<'world_borrow, 'a, T> Single<'world_borrow, T> {
-    pub fn get(&'a self) -> Option<&T> {
+impl<'world_borrow, T> Single<'world_borrow, T> {
+    pub fn get(&self) -> Option<&T> {
         self.borrow.get(0)
     }
 
+    /*
     pub fn unwrap(&'a self) -> &'a T {
         self.borrow.get(0).unwrap()
     }
+    */
 
     pub fn entity(&self) -> Entity {
         self.entity
@@ -158,7 +160,7 @@ impl<'world_borrow, T> Deref for Single<'world_borrow, T> {
     fn deref(&self) -> &Self::Target {
         // This unwrap may be bad. If a Single fails to get its query then this unwrap
         // will panic when attempting to access a member
-        self.unwrap()
+        self.borrow.get(0).unwrap()
     }
 }
 
@@ -170,15 +172,16 @@ pub struct SingleMut<'world_borrow, T> {
     pub borrow: RwLockWriteGuard<'world_borrow, Vec<T>>,
 }
 
-impl<'world_borrow, 'a, T> SingleMut<'world_borrow, T> {
-    pub fn get(&'a mut self) -> Option<&mut T> {
+impl<'world_borrow, T> SingleMut<'world_borrow, T> {
+    pub fn get(&mut self) -> Option<&mut T> {
         self.borrow.get_mut(0)
     }
 
+    /*
     pub fn unwrap(&'a mut self) -> &mut T {
         self.borrow.get_mut(0).unwrap()
     }
-
+    */
     pub fn entity(&self) -> Entity {
         self.entity
     }
@@ -194,7 +197,7 @@ impl<'world_borrow, T> Deref for SingleMut<'world_borrow, T> {
 
 impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.unwrap()
+        self.borrow.get_mut(0).unwrap()
     }
 }
 
