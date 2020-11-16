@@ -260,23 +260,6 @@ pub enum ComponentError {
     NoSuchEntity(NoSuchEntity),
 }
 
-/// A handle to a specific component.
-pub struct ComponentHandle<T> {
-    pub entity: Entity,
-    phantom: std::marker::PhantomData<T>,
-}
-
-impl<T> Clone for ComponentHandle<T> {
-    fn clone(&self) -> Self {
-        Self {
-            entity: self.entity,
-            phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<T> Copy for ComponentHandle<T> {}
-
 impl World {
     /// Create the world.
     pub fn new() -> Self {
@@ -326,19 +309,8 @@ impl World {
     }
 
     /// Spawn an entity with just a single component.
-    pub fn spawn_single<T: Component>(&mut self, t: T) -> ComponentHandle<T> {
-        ComponentHandle {
-            entity: self.spawn((t,)),
-            phantom: std::marker::PhantomData,
-        }
-    }
-
-    /// Gets a single component for a ComponentHandle
-    pub fn get_single_component_mut<T: Component>(
-        &mut self,
-        component_handle: ComponentHandle<T>,
-    ) -> Result<&mut T, ComponentError> {
-        self.get_component_mut(component_handle.entity)
+    pub fn spawn_single<T: Component>(&mut self, t: T) -> Entity {
+        self.spawn((t,))
     }
 
     /// Remove an entity and all its components from the world.
