@@ -218,15 +218,15 @@ impl<'a, T: 'static> Fetch<'a> for Single<'_, T> {
             let index = world.archetypes[archetype_index].entities[0];
             let generation = world.entities[index as usize].generation;
             let entity = Entity { index, generation };
-            Ok(Single {
-                entity,
-                borrow: FetchRead::<T>::get(&world, archetype_index)?,
-            })
-        } else {
-            Err(FetchError::ComponentDoesNotExist(
-                ComponentDoesNotExist::new::<T>(),
-            ))
+            let borrow = FetchRead::<T>::get(&world, archetype_index)?;
+
+            if !borrow.is_empty() {
+                return Ok(Single { entity, borrow });
+            }
         }
+        Err(FetchError::ComponentDoesNotExist(
+            ComponentDoesNotExist::new::<T>(),
+        ))
     }
 }
 
@@ -247,15 +247,16 @@ impl<'a, T: 'static> Fetch<'a> for SingleMut<'_, T> {
             let index = world.archetypes[archetype_index].entities[0];
             let generation = world.entities[index as usize].generation;
             let entity = Entity { index, generation };
-            Ok(SingleMut {
-                entity,
-                borrow: FetchWrite::<T>::get(&world, archetype_index)?,
-            })
-        } else {
-            Err(FetchError::ComponentDoesNotExist(
-                ComponentDoesNotExist::new::<T>(),
-            ))
+
+            let borrow = FetchWrite::<T>::get(&world, archetype_index)?;
+
+            if !borrow.is_empty() {
+                return Ok(SingleMut { entity, borrow });
+            }
         }
+        Err(FetchError::ComponentDoesNotExist(
+            ComponentDoesNotExist::new::<T>(),
+        ))
     }
 }
 
