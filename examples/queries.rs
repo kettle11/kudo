@@ -20,6 +20,6 @@ fn main() {
 // If multiple of the component exist then an arbitrary one is returned.
 // Accessing the Single will panic if no instance of the component exists in the world.
 // This is useful for accessing global singleton data.
-fn print_names(program_info: SingleMut<ProgramInfo>) {
+fn print_names(program_info: &mut ProgramInfo) {
     println!("This program's name is: {}", program_info.name);
 }

@@ -1,4 +1,4 @@
-use super::{Fetch, FetchError, World};
+use super::{Fetch, FetchError, FetchItem, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -35,22 +35,23 @@ pub trait IntoSystem<'world_borrow, A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, 'b, FUNC, $($name: Fetch<'world_borrow, 'b> ),*> System<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, FUNC, $($name: Fetch<'world_borrow> ),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
-            FUNC: FnMut($($name,)*) + Copy,
+            FUNC: FnMut($($name,)*) + FnMut($(<<$name as Fetch<'world_borrow>>::FetchItem as FetchItem>::Item,)*),
         {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
             fn run(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
-                $(let $name = <$name as Fetch<'world_borrow, 'b>>::fetch(world)?;)*
-                self($($name,)*);
+                $(let mut $name = <$name as Fetch<'world_borrow>>::fetch(world)?;)*
+                self($($name.get(),)*);
                 Ok(())
             }
         }
 
+        /*
         impl<'world_borrow, 'b, FUNC, $($name: Fetch<'world_borrow, 'b> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
         where
-            FUNC: System<'world_borrow, ($($name,)*)> + 'static + Copy,
+            FUNC: System<'world_borrow, ($($name,)*)> + 'static,
         {
             fn system(self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>> {
                 Box::new(move|world|
@@ -58,6 +59,7 @@ macro_rules! system_impl {
                 )
             }
         }
+        */
 
     };
 }
