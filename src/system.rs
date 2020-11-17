@@ -24,7 +24,7 @@ use super::{Fetch, FetchError, TopLevelQuery, World};
 /// my_system.run(&world).unwrap();
 /// ```
 pub trait System<'world_borrow, A> {
-    fn run<'a>(&'a mut self, world: &'world_borrow World) -> Result<(), FetchError>;
+    fn run(self, world: &'world_borrow World) -> Result<(), FetchError>;
 }
 
 pub trait IntoSystem<'world_borrow, A> {
@@ -35,25 +35,24 @@ pub trait IntoSystem<'world_borrow, A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> + 'static),*> System<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> ),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
-            FUNC: FnMut($($name,)*) + 'static,
+            FUNC: FnMut($($name,)*) + Copy,
         {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
-            fn run<'a>(&'a mut self, world: &'world_borrow World) -> Result<(), FetchError> {
+            fn run(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
                 $(let $name = <$name as Fetch<'world_borrow>>::fetch(world, 0)?;)*
-
                 self($($name,)*);
                 Ok(())
             }
         }
 
-        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> + 'static),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
         where
-            FUNC: System<'world_borrow, ($($name,)*)> + 'static,
+            FUNC: System<'world_borrow, ($($name,)*)> + 'static + Copy,
         {
-            fn system(mut self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>> {
+            fn system(self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>> {
                 Box::new(move|world|
                     self.run(world)
                 )

@@ -146,6 +146,7 @@ impl<'world_borrow, T: 'static> Fetch<'world_borrow> for RwLockWriteGuard<'world
 pub trait TopLevelQuery<'world_borrow>: Fetch<'world_borrow> {}
 impl<'world_borrow, T: 'static> TopLevelQuery<'world_borrow> for Single<'world_borrow, T> {}
 impl<'world_borrow, T: 'static> TopLevelQuery<'world_borrow> for SingleMut<'world_borrow, T> {}
+impl<'world_borrow, Q: QueryParams> TopLevelQuery<'world_borrow> for Query<'world_borrow, Q> {}
 
 /*
 impl<'a, T: QueryParams> Fetch<'a> for Query<'a, T> {
@@ -380,6 +381,8 @@ impl<'world_borrow, Q: QueryParams> Fetch<'world_borrow> for Query<'world_borrow
 
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
+
+
         #[allow(unused_parens)]
         impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {}
 
