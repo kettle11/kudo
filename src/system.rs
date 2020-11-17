@@ -42,7 +42,7 @@ macro_rules! system_impl {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
             fn run(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
-                $(let $name = <$name as Fetch<'world_borrow>>::fetch(world, 0)?;)*
+                $(let $name = <$name as Fetch<'world_borrow>>::fetch(world)?;)*
                 self($($name,)*);
                 Ok(())
             }
