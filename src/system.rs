@@ -1,4 +1,4 @@
-use super::{Fetch, FetchError, TopLevelQuery, World};
+use super::{Fetch, FetchError, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -35,7 +35,7 @@ pub trait IntoSystem<'world_borrow, A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> ),*> System<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, FUNC, $($name: Fetch<'world_borrow> ),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
             FUNC: FnMut($($name,)*) + Copy,
         {
@@ -48,7 +48,7 @@ macro_rules! system_impl {
             }
         }
 
-        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, FUNC, $($name: Fetch<'world_borrow> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
         where
             FUNC: System<'world_borrow, ($($name,)*)> + 'static + Copy,
         {

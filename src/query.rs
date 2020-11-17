@@ -6,8 +6,8 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 #[doc(hidden)]
 
 /// Get data from the world
+/// Something that implements Fetch must return an instance of itself.
 pub trait Fetch<'a>: Sized {
-    //   type Item;
     fn fetch(world: &'a World, archetypes: usize) -> Result<Self, FetchError>;
 }
 
@@ -120,44 +120,6 @@ impl<'world_borrow, T: 'static> QueryParamFetch<'world_borrow> for QueryFetchWri
 pub struct FetchWrite<T> {
     phantom: std::marker::PhantomData<T>,
 }
-
-// Immutably borrow a single component channel from an archetype.
-impl<'world_borrow, T: 'static> Fetch<'world_borrow> for RwLockWriteGuard<'world_borrow, Vec<T>> {
-    fn fetch(world: &'world_borrow World, archetype: usize) -> Result<Self, FetchError> {
-        let archetype = &world.archetypes[archetype];
-        let type_id = TypeId::of::<T>();
-
-        let index = archetype
-            .components
-            .iter()
-            .position(|c| c.type_id == type_id)
-            .unwrap();
-        if let Ok(write_guard) = archetype.get(index).try_write() {
-            Ok(write_guard)
-        } else {
-            Err(FetchError::ComponentAlreadyBorrowed(
-                ComponentAlreadyBorrowed::new::<T>(),
-            ))
-        }
-    }
-}
-
-/// An empty trait used to indicate which queries can be constructed at the top level of a query.
-pub trait TopLevelQuery<'world_borrow>: Fetch<'world_borrow> {}
-impl<'world_borrow, T: 'static> TopLevelQuery<'world_borrow> for Single<'world_borrow, T> {}
-impl<'world_borrow, T: 'static> TopLevelQuery<'world_borrow> for SingleMut<'world_borrow, T> {}
-impl<'world_borrow, Q: QueryParams> TopLevelQuery<'world_borrow> for Query<'world_borrow, Q> {}
-
-/*
-impl<'a, T: QueryParams> Fetch<'a> for Query<'a, T> {
-    fn fetch(world: &'a World, archetype: usize) -> Result<Self, FetchError> {
-        Ok(Query {
-            borrow: <<T as QueryParams>::Fetch as Fetch<'a>>::fetch(&world, archetype)?,
-            phantom: std::marker::PhantomData,
-        })
-    }
-}
-*/
 
 /// Used to get a single *immutable* instance of a component from the world.
 /// If there are multiple of the component in the world an arbitrary
@@ -317,10 +279,7 @@ impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockWriteGuard<'worl
 }
 
 /// The parameters passed into a query. Like: `(&bool, &String)`
-pub trait QueryParams: for<'a> QueryParamFetch<'a> {
-    //   type Fetch;
-    //  fn fetch(world: &World, _archetype: usize) -> Result<Self::Fetch, FetchError>;
-}
+pub trait QueryParams: for<'a> QueryParamFetch<'a> {}
 
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait QueryParam {
@@ -360,16 +319,6 @@ impl<A: 'static> QueryParam for &mut A {
     }
 }
 
-/*
-impl<A: QueryParam> QueryParams for A {
-    type Fetch = A::Fetch;
-    fn fetch(world: & World, _archetype: usize) -> Result<Self::Fetch, FetchError> {
-        Self::Fetch::fetch(world, _archetypes)
-    }
-
-}
-*/
-
 impl<'world_borrow, Q: QueryParams> Fetch<'world_borrow> for Query<'world_borrow, Q> {
     fn fetch(world: &'world_borrow World, _archetype: usize) -> Result<Self, FetchError> {
         Ok(Query {
@@ -381,8 +330,6 @@ impl<'world_borrow, Q: QueryParams> Fetch<'world_borrow> for Query<'world_borrow
 
 macro_rules! entity_query_params_impl {
     ($($name: ident),*) => {
-
-
         #[allow(unused_parens)]
         impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {}
 
