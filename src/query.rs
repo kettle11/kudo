@@ -3,10 +3,16 @@ use std::any::TypeId;
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
+pub trait FetchItem<'a> {
+    type Item;
+    fn get(&'a mut self) -> Self::Item;
+}
+
 #[doc(hidden)]
 /// Get data from the world
 /// Something that implements Fetch must return an instance of itself.
-pub trait Fetch<'a>: Sized {
+pub trait Fetch<'a, 'b>: Sized {
+    type FetchItem: FetchItem<'b>;
     fn fetch(world: &'a World) -> Result<Self, FetchError>;
 }
 
@@ -180,7 +186,15 @@ impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
     }
 }
 
-impl<'a, T: 'static> Fetch<'a> for Single<'a, T> {
+impl<'a, 'b, T: 'static> FetchItem<'b> for Single<'a, T> {
+    type Item = &'b T;
+    fn get(&'b mut self) -> Self::Item {
+        self
+    }
+}
+
+impl<'a, 'b, T: 'static> Fetch<'a, 'b> for Single<'a, T> {
+    type FetchItem = Self;
     fn fetch(world: &'a World) -> Result<Self, FetchError> {
         // The archetypes must be found here.
         let mut archetype_index = None;
@@ -208,7 +222,16 @@ impl<'a, T: 'static> Fetch<'a> for Single<'a, T> {
     }
 }
 
-impl<'a, T: 'static> Fetch<'a> for SingleMut<'a, T> {
+impl<'a, 'b, T: 'static> FetchItem<'b> for SingleMut<'a, T> {
+    type Item = &'b T;
+    fn get(&'b mut self) -> Self::Item {
+        self
+    }
+}
+
+impl<'a, 'b, T: 'static> Fetch<'a, 'b> for SingleMut<'a, T> {
+    type FetchItem = Self;
+
     fn fetch(world: &'a World) -> Result<Self, FetchError> {
         // The archetypes must be found here.
         let mut archetype_index = None;
@@ -318,7 +341,17 @@ impl<A: 'static> QueryParam for &mut A {
     }
 }
 
-impl<'world_borrow, Q: QueryParams> Fetch<'world_borrow> for Query<'world_borrow, Q> {
+impl<'a: 'b, 'b, Q: QueryParams + 'a> FetchItem<'b> for Query<'a, Q> {
+    type Item = &'b mut Self;
+    fn get(&'b mut self) -> Self::Item {
+        self
+    }
+}
+
+impl<'world_borrow: 'b, 'b, Q: QueryParams + 'world_borrow> Fetch<'world_borrow, 'b>
+    for Query<'world_borrow, Q>
+{
+    type FetchItem = Self;
     fn fetch(world: &'world_borrow World) -> Result<Self, FetchError> {
         Ok(Query {
             borrow: Q::fetch(world, 0 /* Ignored */)?,

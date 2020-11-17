@@ -35,20 +35,20 @@ pub trait IntoSystem<'world_borrow, A> {
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, FUNC, $($name: Fetch<'world_borrow> ),*> System<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, 'b, FUNC, $($name: Fetch<'world_borrow, 'b> ),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
             FUNC: FnMut($($name,)*) + Copy,
         {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
             fn run(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
-                $(let $name = <$name as Fetch<'world_borrow>>::fetch(world)?;)*
+                $(let $name = <$name as Fetch<'world_borrow, 'b>>::fetch(world)?;)*
                 self($($name,)*);
                 Ok(())
             }
         }
 
-        impl<'world_borrow, FUNC, $($name: Fetch<'world_borrow> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
+        impl<'world_borrow, 'b, FUNC, $($name: Fetch<'world_borrow, 'b> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
         where
             FUNC: System<'world_borrow, ($($name,)*)> + 'static + Copy,
         {
