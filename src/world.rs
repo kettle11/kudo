@@ -587,12 +587,12 @@ impl World {
 
     /// Query for an immutable reference to the first instance of a component found.
     pub fn get_single<T: 'static>(&self) -> Result<Single<T>, FetchError> {
-        <Single<T> as Fetch>::fetch(self)
+        <Single<T> as Fetch>::fetch(self, 0)
     }
 
     /// Query for a mutable reference to the first instance of a component found.
     pub fn get_single_mut<T: 'static>(&self) -> Result<SingleMut<T>, FetchError> {
-        <SingleMut<T> as Fetch>::fetch(self)
+        <SingleMut<T> as Fetch>::fetch(self, 0)
     }
 
     /// Get a query from the world.
