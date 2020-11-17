@@ -23,35 +23,47 @@ use super::{Fetch, FetchError, TopLevelQuery, World};
 ///
 /// my_system.run(&world).unwrap();
 /// ```
-pub trait System<A> {
-    fn run(self, world: &World) -> Result<(), FetchError>;
-    fn system(self) -> Box<dyn Fn(&World) -> Result<(), FetchError>>;
+pub trait System<'world_borrow, A> {
+    fn run<'a>(&'a mut self, world: &'world_borrow World) -> Result<(), FetchError>;
+}
+
+pub trait IntoSystem<'world_borrow, A> {
+    fn system(self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>>;
 }
 
 // The value accepted as part of a function should be different from the SystemQuery passed in.
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<FUNC, $($name: TopLevelQuery + 'static),*> System<($($name,)*)>  for FUNC
+        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> + 'static),*> System<'world_borrow, ($($name,)*)> for FUNC
         where
-            FUNC: Fn($($name,)*) + Fn($(<$name as Fetch>::Item,)*) + 'static + Copy,
+            FUNC: FnMut($($name,)*) + 'static,
         {
             #[allow(non_snake_case)]
-            fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), FetchError> {
-                $(let $name = <$name as Fetch<'world_borrow>>::get(world, 0)?;)*
+            #[allow(unused_variables)]
+            fn run<'a>(&'a mut self, world: &'world_borrow World) -> Result<(), FetchError> {
+                $(let $name = <$name as Fetch<'world_borrow>>::fetch(world, 0)?;)*
 
                 self($($name,)*);
                 Ok(())
             }
-            fn system(self) -> Box<dyn Fn(&World) -> Result<(), FetchError>> {
+        }
+
+        impl<'world_borrow, FUNC, $($name: TopLevelQuery<'world_borrow> + 'static),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
+        where
+            FUNC: System<'world_borrow, ($($name,)*)> + 'static,
+        {
+            fn system(mut self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>> {
                 Box::new(move|world|
                     self.run(world)
                 )
             }
         }
+
     };
 }
 
+//system_impl! {}
 system_impl! {A}
 system_impl! {A, B}
 system_impl! {A, B, C}

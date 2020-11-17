@@ -8,7 +8,7 @@
 //!
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
-use super::{Fetch, FetchError, Query, QueryParams, Single, SingleMut};
+use super::{Fetch, FetchError, Query, QueryParamFetch, QueryParams, Single, SingleMut};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -587,12 +587,12 @@ impl World {
 
     /// Query for an immutable reference to the first instance of a component found.
     pub fn get_single<T: 'static>(&self) -> Result<Single<T>, FetchError> {
-        <Single<T> as Fetch>::get(self, 0)
+        <Single<T> as Fetch>::fetch(self, 0)
     }
 
     /// Query for a mutable reference to the first instance of a component found.
     pub fn get_single_mut<T: 'static>(&self) -> Result<SingleMut<T>, FetchError> {
-        <SingleMut<T> as Fetch>::get(self, 0)
+        <SingleMut<T> as Fetch>::fetch(self, 0)
     }
 
     /// Get a query from the world.
@@ -604,7 +604,7 @@ impl World {
     /// ```
     pub fn query<T: QueryParams>(&self) -> Result<Query<T>, FetchError> {
         Ok(Query {
-            borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, 0)?,
+            borrow: <T as QueryParamFetch>::fetch(self, 0)?,
             phantom: std::marker::PhantomData,
         })
     }
