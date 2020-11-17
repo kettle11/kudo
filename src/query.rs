@@ -4,11 +4,10 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 #[doc(hidden)]
-
 /// Get data from the world
 /// Something that implements Fetch must return an instance of itself.
 pub trait Fetch<'a>: Sized {
-    fn fetch(world: &'a World, archetypes: usize) -> Result<Self, FetchError>;
+    fn fetch(world: &'a World) -> Result<Self, FetchError>;
 }
 
 #[derive(Debug)]
@@ -182,7 +181,7 @@ impl<'world_borrow, T> DerefMut for SingleMut<'world_borrow, T> {
 }
 
 impl<'a, T: 'static> Fetch<'a> for Single<'a, T> {
-    fn fetch(world: &'a World, _archetypes: usize) -> Result<Self, FetchError> {
+    fn fetch(world: &'a World) -> Result<Self, FetchError> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -210,7 +209,7 @@ impl<'a, T: 'static> Fetch<'a> for Single<'a, T> {
 }
 
 impl<'a, T: 'static> Fetch<'a> for SingleMut<'a, T> {
-    fn fetch(world: &'a World, _archetypes: usize) -> Result<Self, FetchError> {
+    fn fetch(world: &'a World) -> Result<Self, FetchError> {
         // The archetypes must be found here.
         let mut archetype_index = None;
         let type_id = TypeId::of::<T>();
@@ -320,9 +319,9 @@ impl<A: 'static> QueryParam for &mut A {
 }
 
 impl<'world_borrow, Q: QueryParams> Fetch<'world_borrow> for Query<'world_borrow, Q> {
-    fn fetch(world: &'world_borrow World, _archetype: usize) -> Result<Self, FetchError> {
+    fn fetch(world: &'world_borrow World) -> Result<Self, FetchError> {
         Ok(Query {
-            borrow: Q::fetch(world, _archetype)?,
+            borrow: Q::fetch(world, 0 /* Ignored */)?,
             phantom: std::marker::PhantomData,
         })
     }
