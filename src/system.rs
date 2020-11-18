@@ -23,43 +23,43 @@ use super::{Fetch, FetchError, FetchItem, World};
 ///
 /// my_system.run(&world).unwrap();
 /// ```
-pub trait System<'world_borrow, A> {
-    fn run(self, world: &'world_borrow World) -> Result<(), FetchError>;
+pub trait System<A> {
+    fn run(self, world: &World) -> Result<(), FetchError>;
 }
 
-pub trait IntoSystem<'world_borrow, A> {
-    fn system(self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>>;
+pub trait IntoSystem<A> {
+    fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError>>;
 }
 
 // The value accepted as part of a function should be different from the SystemQuery passed in.
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<'world_borrow, FUNC, $($name: Fetch<'world_borrow> ),*> System<'world_borrow, ($($name,)*)> for FUNC
+        impl<FUNC, $($name: for<'a> Fetch<'a>),*> System<($($name,)*)> for FUNC
         where
-            FUNC: FnMut($($name,)*) + FnMut($(<<$name as Fetch<'world_borrow>>::FetchItem as FetchItem>::Item,)*),
+            FUNC: FnMut($($name,)*) + FnMut($(<<$name as Fetch>::FetchItem as FetchItem>::Item,)*),
         {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
-            fn run(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
+            fn run<'world_borrow>(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
                 $(let mut $name = <$name as Fetch<'world_borrow>>::fetch(world)?;)*
                 self($($name.get(),)*);
                 Ok(())
             }
         }
 
-        /*
-        impl<'world_borrow, 'b, FUNC, $($name: Fetch<'world_borrow, 'b> ),*> IntoSystem<'world_borrow, ($($name,)*)> for FUNC
+
+        impl<'world_borrow, FUNC, $($name: for<'a> Fetch<'a> ),*> IntoSystem<($($name,)*)> for FUNC
         where
-            FUNC: System<'world_borrow, ($($name,)*)> + 'static,
+            FUNC: System<($($name,)*)> + 'static + Copy,
         {
-            fn system(self) -> Box<dyn FnMut(&'world_borrow World) -> Result<(), FetchError>> {
+            fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError>> {
                 Box::new(move|world|
                     self.run(world)
                 )
             }
         }
-        */
+
 
     };
 }
