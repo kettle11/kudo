@@ -8,7 +8,7 @@
 //!
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
-use super::{Fetch, FetchError, Query, QueryParamFetch, QueryParams, Single, SingleMut};
+use super::{Fetch, FetchError, Query, QueryFetch, QueryParams, Single, SingleMut};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -604,7 +604,7 @@ impl World {
     /// ```
     pub fn query<T: QueryParams>(&self) -> Result<Query<T>, FetchError> {
         Ok(Query {
-            borrow: <T as QueryParamFetch>::fetch_param(self, 0)?,
+            borrow: <T as QueryFetch>::fetch_param(self, 0)?,
             phantom: std::marker::PhantomData,
         })
     }

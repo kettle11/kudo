@@ -62,7 +62,10 @@ impl std::fmt::Display for ComponentDoesNotExist {
 
 impl std::error::Error for ComponentDoesNotExist {}
 
-pub trait QueryParamFetch<'a> {
+/// `QueryFetch` implements fetching slightly differently than regular `Regular` Fetch.
+/// `QueryFetch` is used as part of `Query`s
+#[doc(hidden)]
+pub trait QueryFetch<'a> {
     type Item;
     fn fetch_param(world: &'a World, archetypes: usize) -> Result<Self::Item, FetchError>;
 }
@@ -75,7 +78,7 @@ pub struct QueryFetchRead<T> {
 }
 
 // Borrow a single component channel from an archetype.
-impl<'world_borrow, T: 'static> QueryParamFetch<'world_borrow> for QueryFetchRead<T> {
+impl<'world_borrow, T: 'static> QueryFetch<'world_borrow> for QueryFetchRead<T> {
     type Item = RwLockReadGuard<'world_borrow, Vec<T>>;
     fn fetch_param(
         world: &'world_borrow World,
@@ -92,7 +95,7 @@ pub struct QueryFetchWrite<T> {
     phantom: std::marker::PhantomData<T>,
 }
 
-impl<'world_borrow, T: 'static> QueryParamFetch<'world_borrow> for QueryFetchWrite<T> {
+impl<'world_borrow, T: 'static> QueryFetch<'world_borrow> for QueryFetchWrite<T> {
     type Item = RwLockWriteGuard<'world_borrow, Vec<T>>;
     fn fetch_param(
         world: &'world_borrow World,
@@ -286,18 +289,18 @@ impl<'a, 'b, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 /// Query for entities with specific components.
 pub struct Query<'world_borrow, T: QueryParams> {
     // The archetype borrow will be based on the QueryParams borrow type.
-    pub borrow: <T as QueryParamFetch<'world_borrow>>::Item,
+    pub borrow: <T as QueryFetch<'world_borrow>>::Item,
     pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
 }
 
 impl<'world_borrow, 'iter, D: QueryParams> Query<'world_borrow, D>
 where
-    <D as QueryParamFetch<'world_borrow>>::Item: GetIter<'iter>,
+    <D as QueryFetch<'world_borrow>>::Item: GetIter<'iter>,
 {
     /// Gets an iterator over the components in this `Query`.
     pub fn iter(
         &'iter mut self,
-    ) -> <<D as QueryParamFetch<'world_borrow>>::Item as GetIter<'iter>>::Iter {
+    ) -> <<D as QueryFetch<'world_borrow>>::Item as GetIter<'iter>>::Iter {
         self.borrow.get_iter()
     }
 }
@@ -324,11 +327,11 @@ impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockWriteGuard<'worl
 }
 
 /// The parameters passed into a query. Like: `(&bool, &String)`
-pub trait QueryParams: for<'a> QueryParamFetch<'a> {}
+pub trait QueryParams: for<'a> QueryFetch<'a> {}
 
 /// A member of a `Query`, like `&A` or `&mut A`
 pub trait QueryParam {
-    type Fetch: for<'a> QueryParamFetch<'a>;
+    type Fetch: for<'a> QueryFetch<'a>;
 
     #[doc(hidden)]
     fn add_types(types: &mut Vec<TypeId>);
@@ -387,8 +390,8 @@ macro_rules! entity_query_params_impl {
         impl<$($name: QueryParam,)*> QueryParams for ($($name,)*) {}
 
         #[allow(unused_parens)]
-        impl <'world_borrow, $($name: QueryParam,)*> QueryParamFetch<'world_borrow> for ($($name,)*) {
-            type Item = Vec<($(<$name::Fetch as QueryParamFetch<'world_borrow>>::Item),*)>;
+        impl <'world_borrow, $($name: QueryParam,)*> QueryFetch<'world_borrow> for ($($name,)*) {
+            type Item = Vec<($(<$name::Fetch as QueryFetch<'world_borrow>>::Item),*)>;
 
             fn fetch_param(world: &'world_borrow World, _archetype: usize) -> Result<Self::Item, FetchError> {
                 #[cfg(debug_assertions)]
