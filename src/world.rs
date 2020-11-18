@@ -604,7 +604,7 @@ impl World {
     /// ```
     pub fn query<T: QueryParams>(&self) -> Result<Query<T>, FetchError> {
         Ok(Query {
-            borrow: <T as QueryParamFetch>::fetch(self, 0)?,
+            borrow: <T as QueryParamFetch>::fetch_param(self, 0)?,
             phantom: std::marker::PhantomData,
         })
     }
