@@ -28,7 +28,7 @@ pub trait System<A> {
 }
 
 pub trait IntoSystem<A> {
-    fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError>>;
+    fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError> + Send + Sync>;
 }
 
 // The value accepted as part of a function should be different from the SystemQuery passed in.
@@ -51,9 +51,9 @@ macro_rules! system_impl {
 
         impl<'world_borrow, FUNC, $($name: for<'a> Fetch<'a> ),*> IntoSystem<($($name,)*)> for FUNC
         where
-            FUNC: System<($($name,)*)> + 'static + Copy,
+            FUNC: System<($($name,)*)> + 'static + Copy + Send + Sync,
         {
-            fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError>> {
+            fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError> + Send + Sync> {
                 Box::new(move|world|
                     self.run(world)
                 )
