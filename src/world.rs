@@ -179,12 +179,7 @@ impl Archetype {
     /// This takes a mutable reference so that the inner RwLock does not need to be locked
     /// by instead using get_mut.
     fn len(&mut self) -> usize {
-        // If this archetype has no components its length is 0
-        if self.components.is_empty() {
-            0
-        } else {
-            self.components[0].len()
-        }
+        self.entities.len()
     }
 }
 

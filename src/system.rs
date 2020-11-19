@@ -59,12 +59,10 @@ macro_rules! system_impl {
                 )
             }
         }
-
-
     };
 }
 
-//system_impl! {}
+system_impl! {}
 system_impl! {A}
 system_impl! {A, B}
 system_impl! {A, B, C}
