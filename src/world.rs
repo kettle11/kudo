@@ -89,9 +89,11 @@ impl ComponentStore {
         }
     }
 
+    /*
     pub fn len(&mut self) -> usize {
         self.data.len()
     }
+    */
 }
 
 #[doc(hidden)]
@@ -678,6 +680,10 @@ component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
 component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
 component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
 component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8), (J, 9)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8), (J, 9), (K, 10)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8), (J, 9), (K, 10), (L, 11)}
 
 /// A helper to get two mutable borrows from the same slice.
 fn index_twice<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, &mut T) {

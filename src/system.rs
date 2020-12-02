@@ -71,3 +71,6 @@ system_impl! {A, B, C, D, E}
 system_impl! {A, B, C, D, E, F}
 system_impl! {A, B, C, D, E, F, G}
 system_impl! {A, B, C, D, E, F, G, H}
+system_impl! {A, B, C, D, E, F, G, H, I}
+system_impl! {A, B, C, D, E, F, G, H, I, J, K}
+system_impl! {A, B, C, D, E, F, G, H, I, J, K, L}

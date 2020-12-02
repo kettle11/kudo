@@ -435,3 +435,6 @@ entity_query_params_impl! {A, B, C, D, E}
 entity_query_params_impl! {A, B, C, D, E, F}
 entity_query_params_impl! {A, B, C, D, E, F, G}
 entity_query_params_impl! {A, B, C, D, E, F, G, H}
+entity_query_params_impl! {A, B, C, D, E, F, G, H, I}
+entity_query_params_impl! {A, B, C, D, E, F, G, H, I, J, K}
+entity_query_params_impl! {A, B, C, D, E, F, G, H, I, J, K, L}
