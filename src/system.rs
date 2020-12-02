@@ -1,4 +1,4 @@
-use super::{Fetch, FetchError, TopLevelQuery, World};
+use super::{Fetch, FetchError, FetchItem, World};
 
 /// A function that can be run as system by pulling in queries from the world.
 /// # Example
@@ -25,25 +25,35 @@ use super::{Fetch, FetchError, TopLevelQuery, World};
 /// ```
 pub trait System<A> {
     fn run(self, world: &World) -> Result<(), FetchError>;
-    fn system(self) -> Box<dyn Fn(&World) -> Result<(), FetchError>>;
+}
+
+pub trait IntoSystem<A> {
+    fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError> + Send + Sync>;
 }
 
 // The value accepted as part of a function should be different from the SystemQuery passed in.
 // Even if they appear the same to the library user.
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<FUNC, $($name: TopLevelQuery + 'static),*> System<($($name,)*)>  for FUNC
+        impl<FUNC, $($name: for<'a> Fetch<'a>),*> System<($($name,)*)> for FUNC
         where
-            FUNC: Fn($($name,)*) + Fn($(<$name as Fetch>::Item,)*) + 'static + Copy,
+            FUNC: FnMut($($name,)*) + FnMut($(<<$name as Fetch>::FetchItem as FetchItem>::Item,)*),
         {
             #[allow(non_snake_case)]
-            fn run<'world_borrow>(self, world: &'world_borrow World) -> Result<(), FetchError> {
-                $(let $name = <$name as Fetch<'world_borrow>>::get(world, 0)?;)*
-
-                self($($name,)*);
+            #[allow(unused_variables)]
+            fn run<'world_borrow>(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
+                $(let mut $name = <$name as Fetch<'world_borrow>>::fetch(world)?;)*
+                self($($name.get(),)*);
                 Ok(())
             }
-            fn system(self) -> Box<dyn Fn(&World) -> Result<(), FetchError>> {
+        }
+
+
+        impl<'world_borrow, FUNC, $($name: for<'a> Fetch<'a> ),*> IntoSystem<($($name,)*)> for FUNC
+        where
+            FUNC: System<($($name,)*)> + 'static + Copy + Send + Sync,
+        {
+            fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError> + Send + Sync> {
                 Box::new(move|world|
                     self.run(world)
                 )
@@ -52,6 +62,7 @@ macro_rules! system_impl {
     };
 }
 
+system_impl! {}
 system_impl! {A}
 system_impl! {A, B}
 system_impl! {A, B, C}
@@ -60,3 +71,6 @@ system_impl! {A, B, C, D, E}
 system_impl! {A, B, C, D, E, F}
 system_impl! {A, B, C, D, E, F, G}
 system_impl! {A, B, C, D, E, F, G, H}
+system_impl! {A, B, C, D, E, F, G, H, I}
+system_impl! {A, B, C, D, E, F, G, H, I, J, K}
+system_impl! {A, B, C, D, E, F, G, H, I, J, K, L}

@@ -16,10 +16,9 @@ fn main() {
     print_names.run(&world).unwrap();
 }
 
-// The call to Single here ensures that exactly one component is retrieved.
+// This call ensures that exactly one component is retrieved.
 // If multiple of the component exist then an arbitrary one is returned.
-// Accessing the Single will panic if no instance of the component exists in the world.
-// This is useful for accessing global singleton data.
-fn print_names(program_info: SingleMut<ProgramInfo>) {
+// This system will panic if no instances of the component exist.
+fn print_names(program_info: &mut ProgramInfo) {
     println!("This program's name is: {}", program_info.name);
 }

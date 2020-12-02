@@ -8,7 +8,7 @@
 //!
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
-use super::{Fetch, FetchError, Query, QueryParams, Single, SingleMut};
+use super::{Fetch, FetchError, Query, QueryFetch, QueryParams, Single, SingleMut};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -89,9 +89,11 @@ impl ComponentStore {
         }
     }
 
+    /*
     pub fn len(&mut self) -> usize {
         self.data.len()
     }
+    */
 }
 
 #[doc(hidden)]
@@ -179,12 +181,7 @@ impl Archetype {
     /// This takes a mutable reference so that the inner RwLock does not need to be locked
     /// by instead using get_mut.
     fn len(&mut self) -> usize {
-        // If this archetype has no components its length is 0
-        if self.components.is_empty() {
-            0
-        } else {
-            self.components[0].len()
-        }
+        self.entities.len()
     }
 }
 
@@ -587,12 +584,12 @@ impl World {
 
     /// Query for an immutable reference to the first instance of a component found.
     pub fn get_single<T: 'static>(&self) -> Result<Single<T>, FetchError> {
-        <Single<T> as Fetch>::get(self, 0)
+        <Single<T> as Fetch>::fetch(self)
     }
 
     /// Query for a mutable reference to the first instance of a component found.
     pub fn get_single_mut<T: 'static>(&self) -> Result<SingleMut<T>, FetchError> {
-        <SingleMut<T> as Fetch>::get(self, 0)
+        <SingleMut<T> as Fetch>::fetch(self)
     }
 
     /// Get a query from the world.
@@ -604,7 +601,7 @@ impl World {
     /// ```
     pub fn query<T: QueryParams>(&self) -> Result<Query<T>, FetchError> {
         Ok(Query {
-            borrow: <<T as QueryParams>::Fetch as Fetch>::get(self, 0)?,
+            borrow: <T as QueryFetch>::fetch_param(self, 0)?,
             phantom: std::marker::PhantomData,
         })
     }
@@ -683,6 +680,10 @@ component_bundle_impl! {5, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4)}
 component_bundle_impl! {6, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5)}
 component_bundle_impl! {7, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6)}
 component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8), (J, 9)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8), (J, 9), (K, 10)}
+component_bundle_impl! {8, (A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6), (H, 7), (I, 8), (J, 9), (K, 10), (L, 11)}
 
 /// A helper to get two mutable borrows from the same slice.
 fn index_twice<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, &mut T) {
