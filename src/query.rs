@@ -148,6 +148,21 @@ fn fetch_component_channel<T: 'static>(
     }
 }
 
+/// A dummy struct that is never constructed.
+/// It is used to specify a Fetch trait.
+#[doc(hidden)]
+pub struct QueryFetchEntity {}
+
+impl<'world_borrow> QueryFetch<'world_borrow> for QueryFetchEntity {
+    type Item = &'world_borrow Vec<crate::EntityId>;
+    fn fetch_param(
+        world: &'world_borrow World,
+        archetype: usize,
+    ) -> Result<Self::Item, FetchError> {
+        Ok(&world.archetypes[archetype].entities)
+    }
+}
+
 /// Used to get a single *immutable* instance of a component from the world.
 /// If there are multiple of the component in the world an arbitrary
 /// instance is returned.
@@ -290,7 +305,7 @@ impl<'a, 'b, T: 'static> Fetch<'a> for SingleMut<'_, T> {
 pub struct Query<'world_borrow, T: QueryParams> {
     // The archetype borrow will be based on the QueryParams borrow type.
     pub borrow: <T as QueryFetch<'world_borrow>>::Item,
-    pub(crate) phantom: std::marker::PhantomData<&'world_borrow ()>,
+    pub world: &'world_borrow World,
 }
 
 impl<'world_borrow, 'iter, D: QueryParams> Query<'world_borrow, D>
@@ -301,28 +316,41 @@ where
     pub fn iter(
         &'iter mut self,
     ) -> <<D as QueryFetch<'world_borrow>>::Item as GetIter<'iter>>::Iter {
-        self.borrow.get_iter()
+        self.borrow.get_iter(self.world)
     }
 }
 
 impl<'iter, T: GetIter<'iter>> GetIter<'iter> for Vec<T> {
     type Iter = ChainedIterator<<T as GetIter<'iter>>::Iter>;
-    fn get_iter(&'iter mut self) -> Self::Iter {
-        ChainedIterator::new(self.iter_mut().map(|t| t.get_iter()).collect())
+    fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
+        ChainedIterator::new(self.iter_mut().map(|t| t.get_iter(world)).collect())
     }
 }
 
 impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockReadGuard<'world_borrow, Vec<T>> {
     type Iter = std::slice::Iter<'iter, T>;
-    fn get_iter(&'iter mut self) -> Self::Iter {
+    fn get_iter(&'iter mut self, _world: &World) -> Self::Iter {
         <[T]>::iter(self)
     }
 }
 
 impl<'iter, 'world_borrow, T: 'static> GetIter<'iter> for RwLockWriteGuard<'world_borrow, Vec<T>> {
     type Iter = std::slice::IterMut<'iter, T>;
-    fn get_iter(&'iter mut self) -> Self::Iter {
+    fn get_iter(&'iter mut self, _world: &'iter World) -> Self::Iter {
         <[T]>::iter_mut(self)
+    }
+}
+
+impl<'iter, 'world_borrow> GetIter<'iter> for &'world_borrow Vec<crate::EntityId> {
+    type Iter = Box<dyn Iterator<Item = Entity> + 'iter>;
+    fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
+        Box::new(self.iter().map(move |e| {
+            let generation = world.entities[*e as usize].generation;
+            Entity {
+                generation,
+                index: *e,
+            }
+        }))
     }
 }
 
@@ -367,6 +395,16 @@ impl<A: 'static> QueryParam for &mut A {
     }
 }
 
+impl QueryParam for Entity {
+    type Fetch = QueryFetchEntity;
+
+    fn add_types(types: &mut Vec<TypeId>) {}
+
+    fn matches_archetype(archetype: &Archetype) -> bool {
+        true
+    }
+}
+
 impl<'a, 'b, Q: QueryParams + 'static> FetchItem<'b> for Option<Query<'a, Q>> {
     type Item = Query<'a, Q>;
     fn get(&'b mut self) -> Self::Item {
@@ -379,7 +417,7 @@ impl<'world_borrow, Q: QueryParams + 'static> Fetch<'world_borrow> for Query<'_,
     fn fetch(world: &'world_borrow World) -> Result<Self::FetchItem, FetchError> {
         Ok(Some(Query {
             borrow: Q::fetch_param(world, 0 /* Ignored */)?,
-            phantom: std::marker::PhantomData,
+            world,
         }))
     }
 }

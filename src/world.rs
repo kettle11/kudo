@@ -16,7 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::RwLock;
 
 // This can be used to easily change the size of an EntityId.
-type EntityId = u32;
+pub(crate) type EntityId = u32;
 
 pub trait Component: Sync + Send + 'static {}
 impl<T: Sync + Send + 'static> Component for T {}
@@ -602,7 +602,7 @@ impl World {
     pub fn query<T: QueryParams>(&self) -> Result<Query<T>, FetchError> {
         Ok(Query {
             borrow: <T as QueryFetch>::fetch_param(self, 0)?,
-            phantom: std::marker::PhantomData,
+            world: self,
         })
     }
 }
