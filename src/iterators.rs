@@ -13,7 +13,7 @@ pub trait GetIter<'iter> {
 
 impl<'iter> GetIter<'iter> for () {
     type Iter = std::iter::Empty<()>;
-    fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
+    fn get_iter(&'iter mut self, _world: &'iter World) -> Self::Iter {
         std::iter::empty()
     }
 }

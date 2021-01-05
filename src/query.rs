@@ -398,9 +398,9 @@ impl<A: 'static> QueryParam for &mut A {
 impl QueryParam for Entity {
     type Fetch = QueryFetchEntity;
 
-    fn add_types(types: &mut Vec<TypeId>) {}
+    fn add_types(_types: &mut Vec<TypeId>) {}
 
-    fn matches_archetype(archetype: &Archetype) -> bool {
+    fn matches_archetype(_archetype: &Archetype) -> bool {
         true
     }
 }
