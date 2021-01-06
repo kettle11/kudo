@@ -1,22 +1,4 @@
-use crate::World;
 use std::iter::Zip;
-// GetIter is pretty much the standard library IntoIterator trait, but it uses a lifetime
-// instead of taking ownership.
-// But maybe there's a way to use the standard library IntoIterator instead?
-pub trait GetIter<'iter> {
-    type Iter: Iterator;
-
-    // Named get_iter to disambiguate from into_iter
-    // But will be renamed because it's annoying.
-    fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter;
-}
-
-impl<'iter> GetIter<'iter> for () {
-    type Iter = std::iter::Empty<()>;
-    fn get_iter(&'iter mut self, _world: &'iter World) -> Self::Iter {
-        std::iter::empty()
-    }
-}
 
 // This first iterator wraps the standard library `Zip` iterator and flattens nested tuples
 // of values returned to a flat list.
@@ -126,42 +108,3 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
         (min, Some(max))
     }
 }
-
-// Non-macro implementations of GetIter that just wraps the inner Iter type.
-// Is a unique 'GetIter' trait really needed or could something in the standard
-// library be used?
-impl<'iter, A: GetIter<'iter>> GetIter<'iter> for (A,) {
-    type Iter = A::Iter;
-    fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
-        self.0.get_iter(world)
-    }
-}
-
-// Implementing this for all tuples that implement GetIter is a pretty strong
-// assumption for a somewhat generic seeming trait.
-impl<'iter, A: GetIter<'iter>, B: GetIter<'iter>> GetIter<'iter> for (A, B) {
-    type Iter = Zip<A::Iter, B::Iter>;
-    fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
-        self.0.get_iter(world).zip(self.1.get_iter(world))
-    }
-}
-
-macro_rules! get_iter_impl {
-    ($zip_type: ident, $($name: ident),*) => {
-        #[allow(non_snake_case)]
-        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
-            type Iter = $zip_type<$($name::Iter,)*>;
-            fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
-                let ($(ref mut $name,)*) = self;
-                $zip_type::new($($name.get_iter(world),)*)
-            }
-        }
-    }
-}
-
-get_iter_impl! {Zip3, A, B, C}
-get_iter_impl! {Zip4, A, B, C, D}
-get_iter_impl! {Zip5, A, B, C, D, E}
-get_iter_impl! {Zip6, A, B, C, D, E, F}
-get_iter_impl! {Zip7, A, B, C, D, E, F, G}
-get_iter_impl! {Zip8, A, B, C, D, E, F, G, H}
