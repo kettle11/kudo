@@ -127,19 +127,6 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
     }
 }
 
-macro_rules! get_iter_impl {
-    ($zip_type: ident, $($name: ident),*) => {
-        #[allow(non_snake_case)]
-        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
-            type Iter = $zip_type<$($name::Iter,)*>;
-            fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
-                let ($(ref mut $name,)*) = self;
-                $zip_type::new($($name.get_iter(world),)*)
-            }
-        }
-    }
-}
-
 // Non-macro implementations of GetIter that just wraps the inner Iter type.
 // Is a unique 'GetIter' trait really needed or could something in the standard
 // library be used?
@@ -156,6 +143,19 @@ impl<'iter, A: GetIter<'iter>, B: GetIter<'iter>> GetIter<'iter> for (A, B) {
     type Iter = Zip<A::Iter, B::Iter>;
     fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
         self.0.get_iter(world).zip(self.1.get_iter(world))
+    }
+}
+
+macro_rules! get_iter_impl {
+    ($zip_type: ident, $($name: ident),*) => {
+        #[allow(non_snake_case)]
+        impl<'iter, $($name: GetIter<'iter>),*> GetIter<'iter> for ($($name,)*){
+            type Iter = $zip_type<$($name::Iter,)*>;
+            fn get_iter(&'iter mut self, world: &'iter World) -> Self::Iter {
+                let ($(ref mut $name,)*) = self;
+                $zip_type::new($($name.get_iter(world),)*)
+            }
+        }
     }
 }
 

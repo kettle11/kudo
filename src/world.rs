@@ -8,7 +8,7 @@
 //!
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
-use super::{Fetch, FetchError, Query, QueryFetch, QueryParams, Single, SingleMut};
+use super::{Fetch, FetchError, Query, QueryParameters};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -196,7 +196,7 @@ pub struct EntityLocation {
 #[derive(Clone, Copy)]
 pub(crate) struct EntityInfo {
     pub(crate) generation: EntityId,
-    location: EntityLocation,
+    pub(crate) location: EntityLocation,
 }
 
 /// A handle to an entity within the world.
@@ -582,6 +582,7 @@ impl World {
         }
     }
 
+    /*
     /// Query for an immutable reference to the first instance of a component found.
     pub fn get_single<T: 'static>(&self) -> Result<Single<T>, FetchError> {
         <Single<T> as Fetch>::fetch(self)
@@ -591,6 +592,7 @@ impl World {
     pub fn get_single_mut<T: 'static>(&self) -> Result<SingleMut<T>, FetchError> {
         <SingleMut<T> as Fetch>::fetch(self)
     }
+    */
 
     /// Get a query from the world.
     /// # Example
@@ -599,11 +601,10 @@ impl World {
     /// # let mut world = World::new();
     /// let query = world.query<(&bool, &String)>();
     /// ```
-    pub fn query<T: QueryParams>(&self) -> Result<Query<T>, FetchError> {
-        Ok(Query {
-            borrow: <T as QueryFetch>::fetch_param(self, 0)?,
-            world: self,
-        })
+    pub fn query<'world_borrow, T: QueryParameters>(
+        &'world_borrow self,
+    ) -> Result<Query<T>, FetchError> {
+        Ok(Query::<T>::fetch(self)?.take().unwrap())
     }
 }
 

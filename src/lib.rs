@@ -38,11 +38,15 @@
 //! ```
 
 mod iterators;
-mod query;
+//mod query;
+mod errors;
+mod query2;
 mod system;
 mod world;
 
+pub use errors::*;
 pub use iterators::*;
-pub use query::*;
+pub use query2::*;
+//pub use query::*;
 pub use system::*;
 pub use world::*;

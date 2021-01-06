@@ -23,21 +23,51 @@ use super::{Fetch, FetchError, FetchItem, World};
 ///
 /// my_system.run(&world).unwrap();
 /// ```
-pub trait System<A> {
-    fn run(self, world: &World) -> Result<(), FetchError>;
+pub trait System<'world_borrow, P> {
+    fn run(self, world: &'world_borrow World) -> Result<(), FetchError>;
 }
 
+/*
 pub trait IntoSystem<A> {
     fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError> + Send + Sync>;
+}
+*/
+
+impl<'world_borrow, A: Fetch<'world_borrow>, FUNC> System<'world_borrow, A> for FUNC
+where
+    FUNC: FnMut(A) + Fn(<A::Item as FetchItem>::Item),
+{
+    fn run(self, world: &'world_borrow World) -> Result<(), FetchError> {
+        let mut a = A::fetch(world)?;
+        let a = a.inner();
+        self(a);
+        Ok(())
+    }
+}
+
+impl<'world_borrow, A: Fetch<'world_borrow>, B: Fetch<'world_borrow>, FUNC>
+    System<'world_borrow, (A, B)> for FUNC
+where
+    FUNC: FnMut(A, B) + Fn(<A::Item as FetchItem>::Item, <B::Item as FetchItem>::Item),
+{
+    fn run(self, world: &'world_borrow World) -> Result<(), FetchError> {
+        let mut a = A::fetch(world)?;
+        let mut b = B::fetch(world)?;
+        let a = a.inner();
+        let b = b.inner();
+        self(a, b);
+        Ok(())
+    }
 }
 
 // The value accepted as part of a function should be different from the SystemQuery passed in.
 // Even if they appear the same to the library user.
+/*
 macro_rules! system_impl {
     ($($name: ident),*) => {
         impl<FUNC, $($name: for<'a> Fetch<'a>),*> System<($($name,)*)> for FUNC
         where
-            FUNC: FnMut($($name,)*) + FnMut($(<<$name as Fetch>::FetchItem as FetchItem>::Item,)*),
+            FUNC: FnMut($($name,)*) + FnMut($(<<$name as Fetch>::Item as FetchItem>::Item,)*),
         {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
@@ -61,9 +91,12 @@ macro_rules! system_impl {
         }
     };
 }
+*/
 
-system_impl! {}
-system_impl! {A}
+//system_impl! {}
+
+//system_impl! {A}
+/*
 system_impl! {A, B}
 system_impl! {A, B, C}
 system_impl! {A, B, C, D}
@@ -74,3 +107,4 @@ system_impl! {A, B, C, D, E, F, G, H}
 system_impl! {A, B, C, D, E, F, G, H, I}
 system_impl! {A, B, C, D, E, F, G, H, I, J, K}
 system_impl! {A, B, C, D, E, F, G, H, I, J, K, L}
+*/
