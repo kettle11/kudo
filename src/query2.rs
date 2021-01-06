@@ -176,6 +176,49 @@ impl<T: 'static> QueryParameter for &T {
     }
 }
 
+impl<T: 'static> QueryParameter for &mut T {
+    type QueryParameterFetch = WriteQueryParameterFetch<T>;
+
+    fn matches_archetype(archetype: &Archetype) -> bool {
+        let type_id = TypeId::of::<T>();
+        archetype.components.iter().any(|c| c.type_id == type_id)
+    }
+}
+
+/// This is used to test if an entity has a component, without actually
+/// needing to read or write to that component.
+pub struct Has<T> {
+    pub value: bool,
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<'world_borrow, T: 'static> QueryParameterFetch<'world_borrow> for Has<T> {
+    type FetchItem = bool;
+    fn fetch(world: &'world_borrow World, archetype: usize) -> Result<Self::FetchItem, FetchError> {
+        let archetype = &world.archetypes[archetype];
+        let type_id = TypeId::of::<T>();
+
+        let contains = archetype.components.iter().any(|c| c.type_id == type_id);
+        Ok(contains)
+    }
+}
+
+// If a boolean value is reported, just repeat its result.
+impl<'a, 'world_borrow> QueryIter<'a> for bool {
+    type Iter = std::iter::Repeat<bool>;
+    fn iter(&'a mut self) -> Self::Iter {
+        std::iter::repeat(*self)
+    }
+}
+
+impl<T: 'static> QueryParameter for Has<T> {
+    type QueryParameterFetch = Self;
+
+    fn matches_archetype(_archetype: &Archetype) -> bool {
+        true
+    }
+}
+
 #[doc(hidden)]
 pub struct WriteQueryParameterFetch<T> {
     phantom: std::marker::PhantomData<T>,
@@ -199,15 +242,6 @@ impl<'world_borrow, T: 'static> QueryParameterFetch<'world_borrow> for WriteQuer
                 ComponentAlreadyBorrowed::new::<T>(),
             ))
         }
-    }
-}
-
-impl<T: 'static> QueryParameter for &mut T {
-    type QueryParameterFetch = WriteQueryParameterFetch<T>;
-
-    fn matches_archetype(archetype: &Archetype) -> bool {
-        let type_id = TypeId::of::<T>();
-        archetype.components.iter().any(|c| c.type_id == type_id)
     }
 }
 
