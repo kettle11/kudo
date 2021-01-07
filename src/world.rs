@@ -9,7 +9,7 @@
 //! The world contains entity metadata and archetypes.
 //! Archetypes contain Vecs of component data.
 
-use super::{Fetch, FetchError, Query, QueryFetch, QueryParameters, Single, SingleMut};
+use super::{Fetch, FetchError, Query, QueryParameters, Single, SingleMut};
 
 use std::any::{Any, TypeId};
 use std::collections::{hash_map::DefaultHasher, HashMap};
@@ -311,13 +311,22 @@ impl World {
         self.spawn((t,))
     }
 
+    pub(crate) fn get_entity_info(&self, entity: Entity) -> Option<EntityInfo> {
+        let entity_info = self.entities[entity.index as usize];
+        if entity_info.generation == entity.generation {
+            Some(entity_info)
+        } else {
+            None
+        }
+    }
+
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
     pub fn despawn(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
         // Remove an entity
         // Update swapped entity position if an entity was moved.
-        let entity_info = self.entities[entity.index as usize];
-        if entity_info.generation == entity.generation {
+
+        if let Some(entity_info) = self.get_entity_info(entity) {
             self.entities[entity.index as usize].generation += 1;
             let moved_entity = self.archetypes[entity_info.location.archetype_index as usize]
                 .remove_entity(entity_info.location.index_in_archetype);
@@ -337,8 +346,7 @@ impl World {
         &mut self,
         entity: Entity,
     ) -> Result<&mut T, ComponentError> {
-        let entity_info = self.entities[entity.index as usize];
-        if entity_info.generation == entity.generation {
+        if let Some(entity_info) = self.get_entity_info(entity) {
             let archetype = &mut self.archetypes[entity_info.location.archetype_index as usize];
             archetype
                 .get_component_mut(entity_info.location.index_in_archetype)
@@ -359,9 +367,7 @@ impl World {
     /// let b = world.remove_component::<bool>(entity).unwrap();
     /// ```
     pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Result<T, ComponentError> {
-        let entity_info = self.entities[entity.index as usize];
-
-        if entity_info.generation == entity.generation {
+        if let Some(entity_info) = self.get_entity_info(entity) {
             let current_archetype = &self.archetypes[entity_info.location.archetype_index as usize];
 
             let type_id = TypeId::of::<T>();
@@ -471,8 +477,7 @@ impl World {
         // or migrated to an existing archetype.
 
         // First find if the entity exists
-        let entity_info = self.entities[entity.index as usize];
-        if entity_info.generation == entity.generation {
+        if let Some(entity_info) = self.get_entity_info(entity) {
             let type_id = TypeId::of::<T>();
 
             // First check if the component already exists for this entity.
@@ -603,7 +608,7 @@ impl World {
     pub fn query<'world_borrow, T: QueryParameters>(
         &'world_borrow self,
     ) -> Result<Query<T>, FetchError> {
-        Ok(QueryFetch::<T>::fetch(self)?.take().unwrap())
+        Ok(Query::<T>::fetch(self)?.take().unwrap())
     }
 }
 

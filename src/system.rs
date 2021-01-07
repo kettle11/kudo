@@ -1,5 +1,3 @@
-use crate::SystemParameter;
-
 use super::{Fetch, FetchError, FetchItem, World};
 
 /// A function that can be run as system by pulling in queries from the world.
@@ -43,8 +41,7 @@ pub trait OuterSystem {
 // 'Fetch' has an Item that can be borrow to access its 'InnerItem'.
 // This allows the Fetch item to contain data that must be dropped *after*
 // the system executes.
-type InnerItem<'a, 'b, A> =
-    <<<A as SystemParameter>::Fetch as Fetch<'a>>::Item as FetchItem<'b>>::InnerItem;
+type InnerItem<'a, 'b, A> = <<A as Fetch<'a>>::Item as FetchItem<'b>>::InnerItem;
 
 impl<P, S: System<P> + Sync + Send + 'static + Copy> IntoSystem<P> for S {
     fn system(self) -> Box<dyn FnMut(&World) -> Result<(), FetchError> + Send + Sync> {
@@ -54,14 +51,14 @@ impl<P, S: System<P> + Sync + Send + 'static + Copy> IntoSystem<P> for S {
 
 macro_rules! system_impl {
     ($($name: ident),*) => {
-        impl<FUNC, $($name: SystemParameter),*> System<($($name,)*)> for FUNC
+        impl<FUNC, $($name: for<'a> Fetch<'a>),*> System<($($name,)*)> for FUNC
         where
             FUNC: FnMut($($name,)*) + for<'a, 'b> FnMut($(InnerItem<'a, 'b, $name>,)*),
         {
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
             fn run<'world_borrow>(mut self, world: &'world_borrow World) -> Result<(), FetchError> {
-                $(let mut $name = $name::Fetch::fetch(world)?;)*
+                $(let mut $name = $name::fetch(world)?;)*
                 self($($name.inner(),)*);
                 Ok(())
             }

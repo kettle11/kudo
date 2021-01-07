@@ -40,14 +40,17 @@
 mod iterators;
 //mod query;
 mod errors;
+mod other_queries;
 mod query;
+mod query_infrastructure;
 mod system;
 mod world;
 
 pub use errors::*;
 pub use iterators::*;
-pub use query::Query;
+pub use other_queries::*;
 pub use query::*;
+pub use query_infrastructure::*;
 //pub use query::*;
 pub use system::*;
 pub use world::*;
