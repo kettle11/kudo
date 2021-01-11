@@ -2,6 +2,7 @@
 pub enum FetchError {
     ComponentAlreadyBorrowed(ComponentAlreadyBorrowed),
     ComponentDoesNotExist(ComponentDoesNotExist),
+    MissingComponent,
 }
 
 #[derive(Debug)]
