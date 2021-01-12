@@ -43,6 +43,9 @@ impl_zip! {Zip5, Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, |((((a, b), c), d), e)| {(a,
 impl_zip! {Zip6, Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, |(((((a, b), c), d), e), f)| {(a, b, c, d, e, f)}, B, C, D, E, F}
 impl_zip! {Zip7, Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, |((((((a, b), c), d), e), f), g)| {(a, b, c, d, e, f, g)}, B, C, D, E, F, G}
 impl_zip! {Zip8, Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, |(((((((a, b), c), d), e), f), g), h)| {(a, b, c, d, e, f, g, h)}, B, C, D, E, F, G, H}
+impl_zip! {Zip9, Zip<Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, I>, |((((((((a, b), c), d), e), f), g), h), i)| {(a, b, c, d, e, f, g, h, i)}, B, C, D, E, F, G, H, I}
+impl_zip! {Zip10, Zip<Zip<Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, I>, J>, |(((((((((a, b), c), d), e), f), g), h), i), j)| {(a, b, c, d, e, f, g, h, i, j)}, B, C, D, E, F, G, H, I, J}
+impl_zip! {Zip11, Zip<Zip<Zip<Zip<Zip<Zip<Zip<Zip<Zip<Zip<A, B>, C>, D>, E>, F>, G>, H>, I>, J>, K>, |((((((((((a, b), c), d), e), f), g), h), i), j), k)| {(a, b, c, d, e, f, g, h, i, j, k)}, B, C, D, E, F, G, H, I, J, K}
 
 #[doc(hidden)]
 /// A series of iterators of the same type that are traversed in a row.

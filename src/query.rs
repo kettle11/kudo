@@ -152,6 +152,7 @@ query_parameters_impl! {A, B, C, D, E, F}
 query_parameters_impl! {A, B, C, D, E, F, G}
 query_parameters_impl! {A, B, C, D, E, F, G, H}
 query_parameters_impl! {A, B, C, D, E, F, G, H, I}
+query_parameters_impl! {A, B, C, D, E, F, G, H, I, J}
 query_parameters_impl! {A, B, C, D, E, F, G, H, I, J, K}
 query_parameters_impl! {A, B, C, D, E, F, G, H, I, J, K, L}
 
@@ -324,6 +325,9 @@ query_iter! {Zip5, A, B, C, D, E}
 query_iter! {Zip6, A, B, C, D, E, F}
 query_iter! {Zip7, A, B, C, D, E, F, G}
 query_iter! {Zip8, A, B, C, D, E, F, G, H}
+query_iter! {Zip9, A, B, C, D, E, F, G, H, I}
+query_iter! {Zip10, A, B, C, D, E, F, G, H, I, J}
+query_iter! {Zip11, A, B, C, D, E, F, G, H, I, J, K}
 
 // ------------ Other types of query parameters----------------------
 
@@ -386,7 +390,7 @@ impl<T: Iterator> Iterator for OptionIterator<T> {
         if let Some(iter) = &mut self.iter {
             Some(iter.next())
         } else {
-            None
+            Some(None)
         }
     }
 }
