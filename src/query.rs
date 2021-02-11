@@ -6,10 +6,7 @@
 use crate::{
     Archetype, ChainedIterator, ComponentAlreadyBorrowed, Fetch, FetchError, FetchItem, World,
 };
-use std::{
-    sync::{RwLockReadGuard, RwLockWriteGuard},
-    unimplemented,
-};
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::iterators::*;
 use std::any::TypeId;
@@ -17,7 +14,7 @@ use std::iter::Zip;
 
 pub struct Query<'world_borrow, T: QueryParameters> {
     data: <T as QueryParametersFetch<'world_borrow>>::FetchItem,
-    world: &'world_borrow World,
+    _world: &'world_borrow World,
 }
 
 // QueryParameter should fetch its own data, but the data must be requested for any lifetime
@@ -50,7 +47,7 @@ impl<T: 'static> QueryParameter for &mut T {
 impl<T: QueryParameter> QueryParameter for Option<T> {
     type QueryParameterFetch = Option<T::QueryParameterFetch>;
 
-    fn matches_archetype(archetype: &Archetype) -> bool {
+    fn matches_archetype(_archetype: &Archetype) -> bool {
         true
     }
 }
@@ -60,20 +57,10 @@ impl<'world_borrow, T: QueryParameters> Fetch<'world_borrow> for Query<'_, T> {
     fn fetch(world: &'world_borrow World) -> Result<Self::Item, FetchError> {
         Ok(Some(Query {
             data: T::fetch(world)?,
-            world: world,
+            _world: world,
         }))
     }
 }
-
-/*
-impl<T: QueryParameters> Query<'_, T> {
-    pub fn get_component<C>(&self, entity: Entity) -> Option<C> {
-        let entity_info = self.world.get_entity_info(entity)?;
-        unimplemented!()
-        // unimplemented!()
-    }
-}
-*/
 
 impl<'a, 'world_borrow, T: QueryParameters> FetchItem<'a> for Option<Query<'world_borrow, T>> {
     type InnerItem = Query<'world_borrow, T>;
@@ -131,7 +118,7 @@ macro_rules! query_parameters_impl {
                 let mut result = Vec::with_capacity(archetype_indices.len());
                 for archetype_index in archetype_indices {
                     result.push(ArchetypeBorrow {
-                        archetype_index,
+                        _archetype_index: archetype_index,
                         data: ($(<$name::QueryParameterFetch as QueryParameterFetch<'world_borrow>>::fetch(world, archetype_index)?),*)
                     });
                 }
@@ -158,12 +145,8 @@ query_parameters_impl! {A, B, C, D, E, F, G, H, I, J, K, L}
 
 #[doc(hidden)]
 pub struct ArchetypeBorrow<T> {
-    archetype_index: usize,
+    _archetype_index: usize,
     data: T,
-}
-
-trait GetComponent {
-    fn get_component<C>(&self, index: usize) -> Option<C>;
 }
 
 // Request the data from the world for a specific lifetime.
