@@ -76,7 +76,7 @@ pub(crate) fn component_vec_to_mut<T: 'static>(c: &mut dyn ComponentVec) -> &mut
 /// Stores components for a component type
 pub(crate) struct ComponentStore {
     pub(crate) type_id: TypeId,
-    pub(crate) data: Box<dyn ComponentVec + Send + Sync>,
+    pub(crate) data: Box<dyn ComponentVec>,
 }
 
 impl ComponentStore {
@@ -94,12 +94,6 @@ impl ComponentStore {
             data: self.data.new_same_type(),
         }
     }
-
-    /*
-    pub fn len(&mut self) -> usize {
-        self.data.len()
-    }
-    */
 }
 
 struct ArchetypeBuilder {
@@ -120,6 +114,7 @@ impl ArchetypeBuilder {
     fn build(mut self) -> Archetype {
         self.component_channels
             .sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
+
         Archetype {
             entities: Vec::new(),
             components: self.component_channels,
@@ -302,13 +297,80 @@ impl World {
         Self::new_with_clone_store(CloneStore::new().build())
     }
 
-    /// Clones an entity within this world.
-    pub fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
-        // The code here has a bunch of places for improvement.
+    /// Clone all the clonable components of an Entity into the destination World.
+    pub fn clone_entity_into_world(
+        &mut self,
+        entity: Entity,
+        destination_world: &mut World,
+    ) -> Option<Entity> {
+        // Much of the code here could be shared with the function below.
+
         let entity_info = self.get_entity_info(entity)?;
         let old_archetype_index = entity_info.location.archetype_index as usize;
         let archetype = &self.archetypes[old_archetype_index];
 
+        // Calculate new Archetype ID.
+        let mut type_ids = Vec::new();
+        for c in archetype.components.iter() {
+            if self.clone_store.get(c.type_id).is_some() {
+                type_ids.push(c.type_id);
+            }
+        }
+
+        let bundle_id = calculate_bundle_id(&type_ids);
+        let destination_archetype_index = if let Some(archetype_index) =
+            destination_world.bundle_id_to_archetype.get(&bundle_id)
+        {
+            *archetype_index
+        } else {
+            let mut archetype_builder = ArchetypeBuilder::new(type_ids.len());
+            for c in archetype.components.iter() {
+                // This additional hash should be avoidable.
+                if self.clone_store.get(c.type_id).is_some() {
+                    archetype_builder.add_component_store(c.new_same_type())
+                }
+            }
+            destination_world.add_archetype(bundle_id, archetype_builder.build())
+        };
+
+        let old_archetype = &mut self.archetypes[old_archetype_index];
+        let new_archetype = &mut destination_world.archetypes[destination_archetype_index];
+
+        let mut channel_in_destination = 0;
+
+        for c in old_archetype.components.iter_mut() {
+            if let Some(cloner) = self.clone_store.get(c.type_id) {
+                cloner.clone_component(
+                    entity_info.location.index_in_archetype as usize,
+                    c,
+                    &mut new_archetype.components[channel_in_destination],
+                );
+                channel_in_destination += 1;
+            }
+        }
+        let entity = self.get_entity_id();
+        self.entities[entity.index as usize].location = EntityLocation {
+            archetype_index: destination_archetype_index as u32,
+            index_in_archetype: destination_world.archetypes[destination_archetype_index].len()
+                as u32,
+        };
+        Some(entity)
+    }
+
+    /// Clones an entity within this world.
+    pub fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
+        // The code in this has a bunch of places for improvement.
+
+        // 1. Find the Entity
+        // 2. Iterate the Entity's components, check if they're clonable, and calculate a bundle ID to look up the Archetype
+        // 3. Find or create a new Archetype
+        // 4. Copy the data to the new Archetype (with a special case if it's the original Archetype)
+
+        let entity_info = self.get_entity_info(entity)?;
+        let old_archetype_index = entity_info.location.archetype_index as usize;
+        let archetype = &self.archetypes[old_archetype_index];
+
+        // Calculate new Archetype ID.
         let mut type_ids = Vec::new();
         for c in archetype.components.iter() {
             if self.clone_store.get(c.type_id).is_some() {

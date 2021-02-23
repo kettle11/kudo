@@ -57,6 +57,7 @@ where
     fn clone_component_into_self(&self, entity_index: usize, channel: &mut ComponentStore);
 }
 
+#[derive(Clone, Copy)]
 struct Cloner<T> {
     phantom: std::marker::PhantomData<T>,
 }
