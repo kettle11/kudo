@@ -12,9 +12,14 @@
 use super::{Fetch, FetchError, Query, QueryParameters, Single, SingleMut};
 
 use std::any::{Any, TypeId};
-use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::RwLock;
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    usize,
+};
+
+use crate::clone_store::*;
 
 // This can be used to easily change the size of an EntityId.
 pub(crate) type EntityId = u32;
@@ -23,7 +28,7 @@ pub trait Component: Sync + Send + 'static {}
 impl<T: Sync + Send + 'static> Component for T {}
 /// The ComponentVec trait is used to define a set of things that can be done on
 /// an Any without knowing its exact type.
-trait ComponentVec: Sync + Send {
+pub(crate) trait ComponentVec: Sync + Send {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
     fn len(&mut self) -> usize;
@@ -60,7 +65,7 @@ impl<T: Component> ComponentVec for RwLock<Vec<T>> {
 }
 
 // This could be made unchecked in the future if there's a high degree of confidence in everything else.
-fn component_vec_to_mut<T: 'static>(c: &mut dyn ComponentVec) -> &mut Vec<T> {
+pub(crate) fn component_vec_to_mut<T: 'static>(c: &mut dyn ComponentVec) -> &mut Vec<T> {
     c.to_any_mut()
         .downcast_mut::<RwLock<Vec<T>>>()
         .unwrap()
@@ -71,7 +76,7 @@ fn component_vec_to_mut<T: 'static>(c: &mut dyn ComponentVec) -> &mut Vec<T> {
 /// Stores components for a component type
 pub(crate) struct ComponentStore {
     pub(crate) type_id: TypeId,
-    data: Box<dyn ComponentVec + Send + Sync>,
+    pub(crate) data: Box<dyn ComponentVec + Send + Sync>,
 }
 
 impl ComponentStore {
@@ -97,6 +102,31 @@ impl ComponentStore {
     */
 }
 
+struct ArchetypeBuilder {
+    component_channels: Vec<ComponentStore>,
+}
+
+impl ArchetypeBuilder {
+    fn new(reserve_size: usize) -> Self {
+        Self {
+            component_channels: Vec::with_capacity(reserve_size),
+        }
+    }
+
+    fn add_component_store(&mut self, component_store: ComponentStore) {
+        self.component_channels.push(component_store)
+    }
+
+    fn build(mut self) -> Archetype {
+        self.component_channels
+            .sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
+        Archetype {
+            entities: Vec::new(),
+            components: self.component_channels,
+        }
+    }
+}
+
 #[doc(hidden)]
 /// An archetype stores entities with the same set of components.
 pub struct Archetype {
@@ -105,13 +135,6 @@ pub struct Archetype {
 }
 
 impl Archetype {
-    pub fn new() -> Self {
-        Self {
-            entities: Vec::new(),
-            components: Vec::new(),
-        }
-    }
-
     pub(crate) fn get<T: 'static>(&self, index: usize) -> &RwLock<Vec<T>> {
         self.components[index]
             .data
@@ -131,7 +154,10 @@ impl Archetype {
         moved
     }
 
-    fn mutable_component_store<T: 'static>(&mut self, component_index: usize) -> &mut Vec<T> {
+    pub(crate) fn mutable_component_store<T: 'static>(
+        &mut self,
+        component_index: usize,
+    ) -> &mut Vec<T> {
         component_vec_to_mut(&mut *self.components[component_index].data)
     }
 
@@ -207,14 +233,6 @@ pub struct Entity {
     pub(crate) generation: EntityId,
 }
 
-/// The world holds all components and associated entities.
-pub struct World {
-    pub(crate) archetypes: Vec<Archetype>,
-    bundle_id_to_archetype: HashMap<u64, usize>,
-    pub(crate) entities: Vec<EntityInfo>,
-    free_entities: Vec<EntityId>,
-}
-
 /// This entity has been despawned so operations can no longer
 /// be performed on it.
 #[derive(Debug)]
@@ -258,29 +276,111 @@ pub enum ComponentError {
     NoSuchEntity(NoSuchEntity),
 }
 
+/// The world holds all components and associated entities.
+pub struct World {
+    pub(crate) archetypes: Vec<Archetype>,
+    bundle_id_to_archetype: HashMap<u64, usize>,
+    pub(crate) entities: Vec<EntityInfo>,
+    free_entities: Vec<EntityId>,
+    clone_store: CloneStore,
+}
+
 impl World {
-    /// Create the world.
-    pub fn new() -> Self {
+    /// Create the World with a `CloneStore` that specifies which components can be cloned.
+    pub fn new_with_clone_store(clone_store: CloneStore) -> Self {
         Self {
             archetypes: Vec::new(),
             bundle_id_to_archetype: HashMap::new(),
             entities: Vec::new(),
             free_entities: Vec::new(),
+            clone_store,
         }
     }
 
-    /// Spawn an entity with components passed in through a tuple.
-    /// Multiple components can be passed in through the tuple.
-    /// # Example
-    /// ```
-    /// # use kudo::*;
-    /// let mut world = World::new();
-    /// let entity = world.spawn((456, true));
-    /// ```
-    pub fn spawn(&mut self, b: impl ComponentBundle) -> Entity {
-        let (index, generation) = if let Some(index) = self.free_entities.pop() {
+    /// Create the world.
+    pub fn new() -> Self {
+        Self::new_with_clone_store(CloneStore::new().build())
+    }
+
+    /// Clones an entity within this world.
+    pub fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
+        // The code here has a bunch of places for improvement.
+        let entity_info = self.get_entity_info(entity)?;
+        let old_archetype_index = entity_info.location.archetype_index as usize;
+        let archetype = &self.archetypes[old_archetype_index];
+
+        let mut type_ids = Vec::new();
+        for c in archetype.components.iter() {
+            if self.clone_store.get(c.type_id).is_some() {
+                type_ids.push(c.type_id);
+            }
+        }
+
+        let bundle_id = calculate_bundle_id(&type_ids);
+
+        let new_archetype_index =
+            if let Some(archetype_index) = self.bundle_id_to_archetype.get(&bundle_id) {
+                *archetype_index
+            } else {
+                let mut archetype_builder = ArchetypeBuilder::new(type_ids.len());
+                for c in archetype.components.iter() {
+                    // This additional hash should be avoidable.
+                    if self.clone_store.get(c.type_id).is_some() {
+                        archetype_builder.add_component_store(c.new_same_type())
+                    }
+                }
+                self.add_archetype(bundle_id, archetype_builder.build())
+            };
+
+        if old_archetype_index as usize == new_archetype_index {
+            for c in self.archetypes[old_archetype_index].components.iter_mut() {
+                if let Some(cloner) = self.clone_store.get(c.type_id) {
+                    cloner.clone_component_into_self(
+                        entity_info.location.index_in_archetype as usize,
+                        c,
+                    );
+                }
+            }
+        } else {
+            let mut channel_in_destination = 0;
+            let (old_archetype, new_archtype) = index_twice(
+                &mut self.archetypes,
+                old_archetype_index as usize,
+                new_archetype_index,
+            );
+
+            for c in old_archetype.components.iter_mut() {
+                if let Some(cloner) = self.clone_store.get(c.type_id) {
+                    cloner.clone_component(
+                        entity_info.location.index_in_archetype as usize,
+                        c,
+                        &mut new_archtype.components[channel_in_destination],
+                    );
+                    channel_in_destination += 1;
+                }
+            }
+        }
+
+        let entity = self.get_entity_id();
+        self.entities[entity.index as usize].location = EntityLocation {
+            archetype_index: new_archetype_index as u32,
+            index_in_archetype: self.archetypes[new_archetype_index].len() as u32,
+        };
+        Some(entity)
+    }
+
+    fn add_archetype(&mut self, bundle_id: u64, archetype: Archetype) -> usize {
+        let new_archetype_index = self.archetypes.len();
+        self.bundle_id_to_archetype
+            .insert(bundle_id, new_archetype_index);
+        self.archetypes.push(archetype);
+        new_archetype_index
+    }
+
+    fn get_entity_id(&mut self) -> Entity {
+        if let Some(index) = self.free_entities.pop() {
             let (generation, _) = self.entities[index as usize].generation.overflowing_add(1);
-            (index, generation)
+            Entity { index, generation }
         } else {
             // Push placeholder data
             self.entities.push(EntityInfo {
@@ -293,17 +393,25 @@ impl World {
 
             // Error if too many entities are allocated.
             debug_assert!(self.entities.len() <= EntityId::MAX as usize);
-            ((self.entities.len() - 1) as EntityId, 0)
-        };
-
-        let location = b.spawn_in_world(self, index);
-
-        self.entities[index as usize] = EntityInfo {
-            location,
-            generation: generation,
-        };
-
-        Entity { index, generation }
+            Entity {
+                index: (self.entities.len() - 1) as EntityId,
+                generation: 0,
+            }
+        }
+    }
+    /// Spawn an entity with components passed in through a tuple.
+    /// Multiple components can be passed in through the tuple.
+    /// # Example
+    /// ```
+    /// # use kudo::*;
+    /// let mut world = World::new();
+    /// let entity = world.spawn((456, true));
+    /// ```
+    pub fn spawn(&mut self, b: impl ComponentBundle) -> Entity {
+        let entity = self.get_entity_id();
+        let location = b.spawn_in_world(self, entity.index);
+        self.entities[entity.index as usize].location = location;
+        entity
     }
 
     /// Spawn an entity with just a single component.
@@ -311,6 +419,7 @@ impl World {
         self.spawn((t,))
     }
 
+    // This should return an error.
     pub(crate) fn get_entity_info(&self, entity: Entity) -> Option<EntityInfo> {
         let entity_info = self.entities[entity.index as usize];
         if entity_info.generation == entity.generation {
@@ -387,19 +496,17 @@ impl World {
                     *new_archetype_index
                 } else {
                     // Create a new archetype
-                    let mut archetype = Archetype::new();
+                    let mut archetype_builder =
+                        ArchetypeBuilder::new(current_archetype.components.len() - 1);
                     for c in current_archetype.components.iter() {
                         if c.type_id != type_id {
-                            archetype.components.push(c.new_same_type());
+                            archetype_builder.add_component_store(c.new_same_type());
                         }
                     }
-
-                    let new_archetype_index = self.archetypes.len();
-
-                    self.bundle_id_to_archetype
-                        .insert(bundle_id, new_archetype_index);
-                    self.archetypes.push(archetype);
-                    new_archetype_index
+                    // A slight optimization here would be to skip the sort that occurs
+                    // in ArchetypeBuilder.
+                    let archetype = archetype_builder.build();
+                    self.add_archetype(bundle_id, archetype)
                 };
 
                 // Much of this code is similar to the code for adding a component.
@@ -517,21 +624,15 @@ impl World {
                     *new_archetype_index
                 } else {
                     // Create a new archetype with the structure of the current archetype and one additional component.
-                    let mut archetype = Archetype::new();
+                    let mut archetype_builder =
+                        ArchetypeBuilder::new(current_archetype.components.len() + 1);
+
                     for c in current_archetype.components.iter() {
-                        archetype.components.push(c.new_same_type());
+                        archetype_builder.add_component_store(c.new_same_type());
                     }
-
-                    let new_archetype_index = self.archetypes.len();
-                    archetype
-                        .components
-                        .insert(insert_index, ComponentStore::new::<T>());
-                    self.bundle_id_to_archetype
-                        .insert(bundle_id, new_archetype_index);
-
-                    self.archetypes.push(archetype);
-
-                    new_archetype_index
+                    archetype_builder.add_component_store(ComponentStore::new::<T>());
+                    let archetype = archetype_builder.build();
+                    self.add_archetype(bundle_id, archetype)
                 };
 
                 // index_twice lets us mutably borrow from the world twice.
@@ -631,9 +732,9 @@ macro_rules! component_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
         impl< $($name: 'static + Send + Sync),*> ComponentBundle for ($($name,)*) {
             fn new_archetype(&self) -> Archetype {
-                let mut components = vec![$(ComponentStore::new::<$name>()), *];
-                components.sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
-                Archetype { components, entities: Vec::new() }
+                let mut archetype_builder = ArchetypeBuilder::new($count);
+                $(archetype_builder.add_component_store(ComponentStore::new::<$name>());)*
+                archetype_builder.build()
             }
 
             fn spawn_in_world(self, world: &mut World, entity_index: EntityId) -> EntityLocation {
@@ -659,11 +760,7 @@ macro_rules! component_bundle_impl {
                     *archetype
                 } else {
                     let archetype = self.new_archetype();
-                    let index = world.archetypes.len();
-
-                    world.bundle_id_to_archetype.insert(bundle_id, index);
-                    world.archetypes.push(archetype);
-                    index
+                    world.add_archetype(bundle_id, archetype)
                 };
 
                 world.archetypes[archetype_index].entities.push(entity_index);

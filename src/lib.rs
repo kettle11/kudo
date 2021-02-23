@@ -39,6 +39,7 @@
 
 mod iterators;
 //mod query;
+mod clone_store;
 mod errors;
 mod other_queries;
 mod query;
@@ -54,3 +55,5 @@ pub use query_infrastructure::*;
 //pub use query::*;
 pub use system::*;
 pub use world::*;
+
+pub use clone_store::*;
