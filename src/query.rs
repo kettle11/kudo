@@ -4,7 +4,8 @@
 //! the parameter from the world.
 
 use crate::{
-    Archetype, ChainedIterator, ComponentAlreadyBorrowed, Fetch, FetchError, FetchItem, World,
+    Archetype, ChainedIterator, ComponentAlreadyBorrowed, Entity, EntityLocation, Fetch,
+    FetchError, FetchItem, World,
 };
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -88,8 +89,6 @@ pub trait QueryParametersFetch<'world_borrow> {
     type FetchItem;
     fn fetch(world: &'world_borrow World) -> Result<Self::FetchItem, FetchError>;
 }
-
-pub trait QueryParametersFetchResult {}
 
 macro_rules! query_parameters_impl {
     ($($name: ident),*) => {
@@ -311,6 +310,47 @@ query_iter! {Zip8, A, B, C, D, E, F, G, H}
 query_iter! {Zip9, A, B, C, D, E, F, G, H, I}
 query_iter! {Zip10, A, B, C, D, E, F, G, H, I, J}
 query_iter! {Zip11, A, B, C, D, E, F, G, H, I, J, K}
+
+macro_rules! get_entity_component {
+    ($($name: ident),*) => {
+impl<'a, 'world_borrow, $($name: QueryParameter),*> GetEntityComponent<'a> for Query<'world_borrow, ($($name,)*)>
+where
+    $(QueryParameterItem<'world_borrow, $name>: GetEntityComponentInner<'a>),*
+     {
+        fn get_entity_component<T>(&'a mut self, entity: Entity) -> Option<&T> {
+            let entity_info = self._world.get_entity_info(entity)?;
+            for d in self.data.iter_mut() {
+                if let Some(result) = d.data.get_entity_component::<T>(entity_info.location) {
+                    return Some(result);
+                }
+            }
+            None
+        }
+    }
+}
+}
+
+get_entity_component! {A}
+/*
+get_entity_component! {A, B}
+get_entity_component! {A, B, C}
+get_entity_component! {A, B, C, D}
+get_entity_component! {A, B, C, D, E}
+get_entity_component! {A, B, C, D, E, F}
+get_entity_component! {A, B, C, D, E, F, G}
+get_entity_component! {A, B, C, D, E, F, G, H}
+get_entity_component! {A, B, C, D, E, F, G, H, I}
+get_entity_component! { A, B, C, D, E, F, G, H, I, J}
+get_entity_component! { A, B, C, D, E, F, G, H, I, J, K}
+*/
+
+pub trait GetEntityComponent<'a> {
+    fn get_entity_component<T>(&'a mut self, entity: Entity) -> Option<&T>;
+}
+
+pub trait GetEntityComponentInner<'a> {
+    fn get_entity_component<T>(&'a mut self, entity: EntityLocation) -> Option<&T>;
+}
 
 // ------------ Other types of query parameters----------------------
 
