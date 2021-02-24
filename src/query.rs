@@ -4,21 +4,24 @@
 //! the parameter from the world.
 
 use crate::{
-    Archetype, ChainedIterator, ComponentAlreadyBorrowed, Entity, EntityLocation, Fetch,
-    FetchError, FetchItem, World,
+    Archetype, ChainedIterator, ComponentAlreadyBorrowed, Entity, Fetch, FetchError, FetchItem,
+    World,
 };
-use std::{
-    ops::Index,
-    sync::{RwLockReadGuard, RwLockWriteGuard},
-};
+use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::iterators::*;
 use std::any::TypeId;
 use std::iter::Zip;
 
 pub struct Query<'world_borrow, T: QueryParameters> {
-    pub data: Vec<<T as QueryParametersFetch<'world_borrow>>::FetchItem>,
+    pub data:
+        Vec<ArchetypeBorrow<'world_borrow, <T as QueryParametersFetch<'world_borrow>>::FetchItem>>,
     _world: &'world_borrow World,
+}
+
+pub struct ArchetypeBorrow<'world_borrow, T> {
+    archetype: &'world_borrow Archetype,
+    data: T,
 }
 
 // QueryParameter should fetch its own data, but the data must be requested for any lifetime
@@ -90,7 +93,9 @@ impl<'a, 'world_borrow, T: 'a> FetchItem<'a> for RwLockWriteGuard<'world_borrow,
 pub trait QueryParameters: for<'a> QueryParametersFetch<'a> {}
 pub trait QueryParametersFetch<'world_borrow> {
     type FetchItem;
-    fn fetch(world: &'world_borrow World) -> Result<Vec<Self::FetchItem>, FetchError>;
+    fn fetch(
+        world: &'world_borrow World,
+    ) -> Result<Vec<ArchetypeBorrow<'world_borrow, Self::FetchItem>>, FetchError>;
 }
 
 macro_rules! query_parameters_impl {
@@ -108,7 +113,7 @@ macro_rules! query_parameters_impl {
             #[allow(unused_parens)]
             type FetchItem = ($(<$name::QueryParameterFetch as QueryParameterFetch<'world_borrow>>::FetchItem),*);
 
-            fn fetch(world: &'world_borrow World) -> Result<Vec<Self::FetchItem>, FetchError> {
+            fn fetch(world: &'world_borrow World) -> Result<Vec<ArchetypeBorrow<'world_borrow, Self::FetchItem>>, FetchError> {
                 let mut archetype_indices = Vec::new();
                 for (i, archetype) in world.archetypes.iter().enumerate() {
                     let matches = $($name::matches_archetype(&archetype))&&*;
@@ -119,7 +124,10 @@ macro_rules! query_parameters_impl {
 
                 let mut result = Vec::with_capacity(archetype_indices.len());
                 for archetype_index in archetype_indices {
-                    result.push( ($(<$name::QueryParameterFetch as QueryParameterFetch<'world_borrow>>::fetch(world, archetype_index)?),*));
+                    result.push(ArchetypeBorrow {
+                        archetype: &world.archetypes[archetype_index],
+                        data: ($(<$name::QueryParameterFetch as QueryParameterFetch<'world_borrow>>::fetch(world, archetype_index)?),*)
+                    });
                 }
 
                 Ok(result)
@@ -230,17 +238,18 @@ pub trait QueryIter<'a> {
     fn iter(&'a mut self) -> Self::Iter;
 }
 
-pub trait IndexQuery<T> {
-    fn index0(&mut self, index: usize) -> T;
-}
-
 impl<'a, 'world_borrow, A: QueryParameter> QueryIter<'a> for Query<'world_borrow, (A,)>
 where
     QueryParameterItem<'world_borrow, A>: QueryIter<'a>,
 {
     type Iter = ChainedIterator<QueryParameterIter<'a, 'world_borrow, A>>;
     fn iter(&'a mut self) -> Self::Iter {
-        ChainedIterator::new(self.data.iter_mut().map(|v| v.iter()).collect())
+        ChainedIterator::new(
+            self.data
+                .iter_mut()
+                .map(|ArchetypeBorrow { data: v, .. }| v.iter())
+                .collect(),
+        )
     }
 }
 
@@ -260,7 +269,7 @@ where
         ChainedIterator::new(
             self.data
                 .iter_mut()
-                .map(|(a, b)| a.iter().zip(b.iter()))
+                .map(|ArchetypeBorrow { data: (a, b), .. }| a.iter().zip(b.iter()))
                 .collect(),
         )
     }
@@ -278,7 +287,7 @@ macro_rules! query_iter {
                 ChainedIterator::new(
                     self.data
                     .iter_mut()
-                    .map(|($(ref mut $name,)*)| $zip_type::new($($name.iter(),)*))
+                    .map(|ArchetypeBorrow{data: ($(ref mut $name,)*), ..}| $zip_type::new($($name.iter(),)*))
                     .collect()
                 )
             }
@@ -296,17 +305,84 @@ query_iter! {Zip9, A, B, C, D, E, F, G, H, I}
 query_iter! {Zip10, A, B, C, D, E, F, G, H, I, J}
 query_iter! {Zip11, A, B, C, D, E, F, G, H, I, J, K}
 
-/*
-impl<'world_borrow, T: QueryParameters> Query<'world_borrow, T>
-where
-    <T as QueryParametersFetch<'world_borrow>>::FetchItem: IndexQuery<T>,
-{
-    pub fn get_entity_components(&self, entity: Entity) -> Option<&T> {
-        let entity_info = self._world.get_entity_info(entity)?;
-        Some(self.data[0].index0(0))
+pub trait IndexQuery<'a> {
+    type Output;
+    fn index_query(&'a mut self, index: usize) -> Self::Output;
+}
+
+impl<'a, 'world_borrow, T: 'static> IndexQuery<'a> for RwLockReadGuard<'world_borrow, Vec<T>> {
+    type Output = &'a T;
+    fn index_query(&'a mut self, index: usize) -> Self::Output {
+        &self[index]
     }
 }
-*/
+
+impl<'a, 'world_borrow, T: 'static> IndexQuery<'a> for RwLockWriteGuard<'world_borrow, Vec<T>> {
+    type Output = &'a mut T;
+    fn index_query(&'a mut self, index: usize) -> Self::Output {
+        &mut self[index]
+    }
+}
+
+macro_rules! index_query_impl {
+    ($($name: ident),*) => {
+        //   impl< $($name: 'static + Send + Sync),*> IndexQuery for ($($name,)*) {
+
+        //}
+
+        impl<'a, $($name:  IndexQuery<'a>),*> IndexQuery<'a> for ($($name,)*) {
+            type Output = ($($name::Output,)*) ;
+            fn index_query(&'a mut self, index: usize) -> ($($name::Output,)*) {
+                #[allow(non_snake_case)]
+                let ($($name,)*) = self;
+                ($($name.index_query(index),)*)
+            }
+        }
+
+    };
+}
+
+index_query_impl! {A}
+index_query_impl! {A, B}
+index_query_impl! {A, B, C}
+index_query_impl! {A, B, C, D}
+index_query_impl! {A, B, C, D, E}
+index_query_impl! {A, B, C, D, E, F}
+index_query_impl! {A, B, C, D, E, F, G}
+index_query_impl! {A, B, C, D, E, F, G, H}
+index_query_impl! {A, B, C, D, E, F, G, H, I}
+index_query_impl! {A, B, C, D, E, F, G, H, I, J}
+index_query_impl! {A, B, C, D, E, F, G, H, I, J, K}
+
+impl<'a, 'world_borrow, T: QueryParameters> Query<'world_borrow, T>
+where
+    <T as QueryParametersFetch<'world_borrow>>::FetchItem: IndexQuery<'a>,
+{
+    pub fn get_entity_components(
+        &'a mut self,
+        entity: Entity,
+    ) -> Option<<<T as QueryParametersFetch<'world_borrow>>::FetchItem as IndexQuery>::Output> {
+        let entity_info = self._world.get_entity_info(entity)?;
+
+        // Search all archetypes borrowed by this query.
+        // This obviously isn't the fastest.
+        // This could perform very poorly when queries have lots of Archetypes.
+        // A faster approach would be to check the TypeIds of the Archetype
+        // at the Entity's location and verify that the TypeIds specify
+        // an Archetype that would be contained within this Query.
+        // But that's tricky to do safely.
+        for borrow in self.data.iter_mut() {
+            if borrow.archetype.index_in_world == entity_info.location.archetype_index {
+                return Some(
+                    borrow
+                        .data
+                        .index_query(entity_info.location.index_in_archetype as usize),
+                );
+            }
+        }
+        None
+    }
+}
 
 // ------------ Other types of query parameters----------------------
 

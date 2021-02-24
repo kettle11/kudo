@@ -118,6 +118,7 @@ impl ArchetypeBuilder {
         Archetype {
             entities: Vec::new(),
             components: self.component_channels,
+            index_in_world: 0,
         }
     }
 }
@@ -127,6 +128,7 @@ impl ArchetypeBuilder {
 pub struct Archetype {
     pub(crate) entities: Vec<EntityId>,
     pub(crate) components: Vec<ComponentStore>,
+    pub(crate) index_in_world: u32,
 }
 
 impl Archetype {
@@ -211,8 +213,8 @@ impl Archetype {
 #[derive(Debug, Clone, Copy)]
 #[doc(hidden)]
 pub struct EntityLocation {
-    archetype_index: EntityId,
-    index_in_archetype: EntityId,
+    pub(crate) archetype_index: EntityId,
+    pub(crate) index_in_archetype: EntityId,
 }
 
 #[derive(Clone, Copy)]
@@ -431,10 +433,11 @@ impl World {
         Some(entity)
     }
 
-    fn add_archetype(&mut self, bundle_id: u64, archetype: Archetype) -> usize {
+    fn add_archetype(&mut self, bundle_id: u64, mut archetype: Archetype) -> usize {
         let new_archetype_index = self.archetypes.len();
         self.bundle_id_to_archetype
             .insert(bundle_id, new_archetype_index);
+        archetype.index_in_world = new_archetype_index as u32;
         self.archetypes.push(archetype);
         new_archetype_index
     }
