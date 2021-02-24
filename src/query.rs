@@ -373,3 +373,17 @@ impl<T: Iterator> Iterator for OptionIterator<T> {
         }
     }
 }
+
+impl<'a, 'world_borrow, T: 'static> QueryIter<'a> for RwLockReadGuard<'world_borrow, Vec<T>> {
+    type Iter = std::slice::Iter<'a, T>;
+    fn iter(&'a mut self) -> Self::Iter {
+        <[T]>::iter(self)
+    }
+}
+
+impl<'a, 'world_borrow, T: 'static> QueryIter<'a> for RwLockWriteGuard<'world_borrow, Vec<T>> {
+    type Iter = std::slice::IterMut<'a, T>;
+    fn iter(&'a mut self) -> Self::Iter {
+        <[T]>::iter_mut(self)
+    }
+}
