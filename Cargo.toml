@@ -3,14 +3,18 @@ name = "kudo"
 version = "0.4.0"
 authors = ["Ian Kettlewell <ian.kettlewell@gmail.com>"]
 edition = "2018"
-license = "Zlib"
+license = "Zlib OR Apache-2.0 OR MIT"
 repository = "https://github.com/kettle11/kudo"
 readme = "README.md"
 keywords = ["ecs", "entity", "component", "game"]
 categories = ["game-engines", "game-development", "data-structures"]
 description = "A minimalist Entity Component System. (Work in Progress)"
 
+[features]
+scheduler = ["ktasks"]
+
 [dependencies]
+ktasks = {git = "https://github.com/kettle11/ktasks", optional = true, branch = "main"}
 
 [dev-dependencies]
 bencher = "0.1.5"
