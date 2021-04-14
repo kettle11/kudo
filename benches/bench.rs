@@ -19,5 +19,29 @@ fn iterate_100k(b: &mut Bencher) {
     })
 }
 
-benchmark_group!(benches, iterate_100k,);
+pub fn fragmented_iter(b: &mut Bencher) {
+    macro_rules! create_entities {
+        ($world:ident; $( $variants:ident ),*) => {
+            $(
+                struct $variants(f32);
+                for _ in 0..20 {
+                    $world.spawn(($variants(0.0), Data(1.0)));
+                }
+            )*
+        };
+    }
+    struct Data(f32);
+
+    let mut world = World::new();
+
+    create_entities!(world; A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
+    let mut query = world.query::<(&mut Data,)>().unwrap();
+
+    b.iter(|| {
+        for mut data in &mut query {
+            data.0 *= 2.0;
+        }
+    });
+}
+benchmark_group!(benches, iterate_100k, fragmented_iter);
 benchmark_main!(benches);

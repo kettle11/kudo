@@ -32,6 +32,11 @@ macro_rules! impl_zip {
             }
         }
 
+        impl<A: ExactSizeIterator, $($T: ExactSizeIterator,)*> ExactSizeIterator for $name<A, $($T,)*> {
+            fn len(&self) -> usize {
+                self.inner.len()
+            }
+        }
     };
 }
 

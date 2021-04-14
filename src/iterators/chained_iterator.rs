@@ -19,13 +19,12 @@ impl<I: Iterator> ChainedIterator<I> {
 impl<I: Iterator> Iterator for ChainedIterator<I> {
     type Item = I::Item;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         // Chain the iterators together.
         // If the end of one iterator is reached go to the next.
-
         match self.current_iter {
             Some(ref mut iter) => match iter.next() {
+                v @ Some(_) => v,
                 None => {
                     self.current_iter = self.iterators.pop();
                     if let Some(ref mut iter) = self.current_iter {
@@ -34,7 +33,6 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
                         None
                     }
                 }
-                item => item,
             },
             None => None,
         }
@@ -60,5 +58,11 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
             max += i_max.unwrap();
         }
         (min, Some(max))
+    }
+}
+
+impl<I: ExactSizeIterator> ExactSizeIterator for ChainedIterator<I> {
+    fn len(&self) -> usize {
+        self.iterators.iter().fold(0, |count, i| count + i.len())
     }
 }
