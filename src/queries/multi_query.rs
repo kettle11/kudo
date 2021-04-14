@@ -99,8 +99,8 @@ macro_rules! query_impl{
 
         }
 
-        impl<'a, $($name: QueryParameter),*> QueryTrait<'a> for Query<'a, ($($name,)*)> {
-            type Result = Option<Self>;
+        impl<'a, $($name: QueryParameter),*> QueryTrait<'a> for Query<'_, ($($name,)*)> {
+            type Result = Option<Query<'a, ($($name,)*)>>;
 
             #[allow(non_snake_case)]
             fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
@@ -117,7 +117,7 @@ macro_rules! query_impl{
                         entities: archetype.entities.read().unwrap(),
                     })
                 }
-                Some(Some(Self { archetype_borrows }))
+                Some(Some(Query { archetype_borrows }))
             }
         }
 
@@ -129,7 +129,7 @@ macro_rules! query_impl{
         impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for Query<'a, ($($name,)*)> {
             type QueryInfo = QueryInfo<$count>;
             fn query_info(world: &World) -> Option<Self::QueryInfo> {
-                let mut type_ids = [
+                let mut type_ids: [Requirement; $count] = [
                     $(Requirement::with_(0, $name::type_id())),*
                 ];
                 // This is a poor way of filling out this requirement.
@@ -145,6 +145,7 @@ macro_rules! query_impl{
     }
 }
 
+query_impl! { 0, }
 query_impl! { 1, A }
 query_impl! { 2, A, B}
 query_impl! { 3, A, B, C}
@@ -294,7 +295,7 @@ where
     }
 }
 
-impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T> {
+impl<'a, 'b, T: 'b + QueryParameters> Query<'a, T> {
     pub fn entities(&'b self) -> ChainedIterator<std::iter::Copied<std::slice::Iter<'b, Entity>>> {
         ChainedIterator::new(
             self.archetype_borrows
