@@ -9,6 +9,6 @@ fn main() {
 
     // If the entity is part of this query (which it is in this case)
     // then return a reference to the requested component.
-    let medusa_health = query.borrow.1.get_component(medusa_entity).unwrap();
-    println!("Medusa's health: {:?}", medusa_health.0)
+    // let medusa_health = query.borrow.1.get_component(medusa_entity).unwrap();
+    //  println!("Medusa's health: {:?}", medusa_health.0)
 }
