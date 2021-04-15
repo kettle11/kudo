@@ -210,18 +210,18 @@ use crate::*;
 
 pub struct SystemScheduler {
     inner_scheduler: Scheduler,
-    systems: Vec<Box<dyn FnMut(&World) -> Option<()> + Send + Sync>>,
+    // systems: Vec<Box<dyn FnMut(&World) -> Option<()> + Send + Sync>>,
 }
 
 impl SystemScheduler {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             inner_scheduler: Scheduler::new(),
-            systems: Vec::new(),
+            //  systems: Vec::new(),
         }
     }
 
-    fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Sync + Send + 'static + Copy>(
+    pub fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Sync + Send + 'static + Copy>(
         &mut self,
         world: &Arc<World>,
         system: F,
@@ -243,9 +243,6 @@ impl SystemScheduler {
             }
         }
 
-        println!("READS: {:?}", reads);
-        println!("WRITES: {:?}", writes);
-
         let world = world.clone();
         // let boxed_system = system.box_system();
         let boxed_system = Box::new(move || {
@@ -255,7 +252,7 @@ impl SystemScheduler {
         // self.systems.push(system.box_system())
     }
 
-    fn run(self) {
+    pub fn run(self) {
         self.inner_scheduler.run()
     }
 }

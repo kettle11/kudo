@@ -11,9 +11,14 @@ categories = ["game-engines", "game-development", "data-structures"]
 description = "A minimalist Entity Component System. (Work in Progress)"
 
 [dependencies]
+ktasks = {path = "../ktasks", optional = true}
 
 [dev-dependencies]
 bencher = "0.1.5"
+
+[features]
+default = ["scheduler"]
+scheduler = ["ktasks"]
 
 [[bench]]
 name = "bench"

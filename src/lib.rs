@@ -24,5 +24,5 @@ use storage_lookup::*;
 #[cfg(feature = "scheduler")]
 mod scheduler;
 
-// #[cfg(feature = "scheduler")]
-// pub use scheduler::*;
+#[cfg(feature = "scheduler")]
+pub use scheduler::*;
