@@ -1,7 +1,9 @@
 //mod multi_queries;
+mod exclusive_world_query;
 mod multi_query;
 mod single_query;
 
+pub use exclusive_world_query::*;
 pub use multi_query::*;
 pub use single_query::*;
 
@@ -25,17 +27,32 @@ pub enum WorldBorrow {
 // To be used for recreating and later for scheduling the query.
 pub trait QueryInfoTrait {
     fn borrows(&self) -> &[WorldBorrow];
+
+    /// If this trait requires exclusive access.
+    fn exclusive(&self) -> bool {
+        false
+    }
 }
 
 pub trait GetQueryInfoTrait {
     type QueryInfo: QueryInfoTrait;
     fn query_info(world: &World) -> Option<Self::QueryInfo>;
 }
+
 pub trait QueryTrait<'a>: GetQueryInfoTrait {
     type Result: for<'b> AsSystemArg<'b>;
 
     /// This is used to actually construct the query.
     fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result>;
+
+    /// Some queries may need exclusive access to the World, this is used to construct those queries.
+    /// But most queries will just work the same if they have exclusive access.
+    fn get_query_exclusive(
+        world: &'a mut World,
+        query_info: &Self::QueryInfo,
+    ) -> Option<Self::Result> {
+        Self::get_query(world, query_info)
+    }
 }
 
 /// The Result of `QueryTrait` must implement this trait.

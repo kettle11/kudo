@@ -89,15 +89,14 @@ impl Scheduler {
         }
     }
 
-    // Probably those shouldn't be allowed.
     pub fn add_task(
         &mut self,
-        reads: &[usize],
-        writes: &[usize],
+        reads: impl IntoIterator<Item = usize>,  //&[usize],
+        writes: impl IntoIterator<Item = usize>, //&[usize],
         task: Box<dyn Fn() + Send + Sync>,
     ) {
         // Only allow tasks with reads or writes
-        assert!(reads.len() + writes.len() > 0);
+        //  assert!(reads.len() + writes.len() > 0);
 
         // Todo: Add a debug check that reads and writes don't overlap.
 
@@ -107,12 +106,12 @@ impl Scheduler {
         // Used to ensure that each task only wakes up the next task once if they share multiple resources.
         let mut wakers = HashSet::new();
 
-        for read in reads.iter() {
+        for read in reads {
             // Ensure that a resource slot is allocated for each resource ID we're scheduling with.
             self.resources
-                .resize(self.resources.len().max(*read + 1), NextUp::None);
+                .resize(self.resources.len().max(read + 1), NextUp::None);
 
-            match &mut self.resources[*read] {
+            match &mut self.resources[read] {
                 NextUp::Readers((blocked_on, readers)) => {
                     if let Some(blocked_on) = blocked_on {
                         if wakers.insert(*blocked_on) {
@@ -127,19 +126,19 @@ impl Scheduler {
                         waiting_for += 1;
                         self.task_info[*writer].tasks_to_wake_up.push(task_id);
                     }
-                    self.resources[*read] = NextUp::Readers((Some(*writer), vec![task_id]));
+                    self.resources[read] = NextUp::Readers((Some(*writer), vec![task_id]));
                 }
                 NextUp::None => {
-                    self.resources[*read] = NextUp::Readers((None, vec![task_id]));
+                    self.resources[read] = NextUp::Readers((None, vec![task_id]));
                 }
             }
         }
 
-        for write in writes.iter() {
+        for write in writes {
             // Ensure that a resource slot is allocated for each resource ID we're scheduling with.
             self.resources
-                .resize(self.resources.len().max(*write + 1), NextUp::None);
-            match &mut self.resources[*write] {
+                .resize(self.resources.len().max(write + 1), NextUp::None);
+            match &mut self.resources[write] {
                 NextUp::Readers((_, readers)) => {
                     for reader in readers.iter() {
                         if wakers.insert(*reader) {
@@ -147,17 +146,17 @@ impl Scheduler {
                             self.task_info[*reader].tasks_to_wake_up.push(task_id);
                         }
                     }
-                    self.resources[*write] = NextUp::Writer(task_id);
+                    self.resources[write] = NextUp::Writer(task_id);
                 }
                 NextUp::Writer(writer) => {
                     if wakers.insert(*writer) {
                         waiting_for += 1;
                         self.task_info[*writer].tasks_to_wake_up.push(task_id);
                     }
-                    self.resources[*write] = NextUp::Writer(task_id);
+                    self.resources[write] = NextUp::Writer(task_id);
                 }
                 NextUp::None => {
-                    self.resources[*write] = NextUp::Writer(task_id);
+                    self.resources[write] = NextUp::Writer(task_id);
                 }
             }
         }
@@ -223,14 +222,14 @@ impl SystemScheduler {
 
     pub fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Sync + Send + 'static + Copy>(
         &mut self,
-        world: &Arc<World>,
+        world: Arc<RwLock<World>>,
         system: F,
     ) {
-        let borrows = system.borrows(&world);
+        let system_info = system.system_info(&world.read().unwrap());
         let mut reads = Vec::new();
         let mut writes = Vec::new();
 
-        for borrow in borrows {
+        for borrow in system_info.borrows {
             match borrow {
                 WorldBorrow::Archetype {
                     archetype_index,
@@ -245,11 +244,26 @@ impl SystemScheduler {
 
         let world = world.clone();
         // let boxed_system = system.box_system();
-        let boxed_system = Box::new(move || {
-            system.run(&world).unwrap();
-        });
-        self.inner_scheduler.add_task(&reads, &writes, boxed_system);
-        // self.systems.push(system.box_system())
+
+        if system_info.exclusive {
+            let boxed_system = Box::new(move || {
+                system.run_exclusive(&mut world.write().unwrap()).unwrap();
+            });
+            self.inner_scheduler.add_task(
+                0..0,
+                0..self.inner_scheduler.resources.len(),
+                boxed_system,
+            );
+        } else {
+            let boxed_system = Box::new(move || {
+                system.run(&world.read().unwrap()).unwrap();
+            });
+            self.inner_scheduler.add_task(
+                reads.iter().copied(),
+                writes.iter().copied(),
+                boxed_system,
+            );
+        }
     }
 
     pub fn run(self) {
@@ -264,18 +278,18 @@ fn schedule_systems() {
     let mut world = World::new();
     world.spawn((10 as i32,));
 
-    let world = Arc::new(world);
+    let world = Arc::new(RwLock::new(world));
     let mut system_scheduler = SystemScheduler::new();
-    system_scheduler.schedule(&world, &|i: &i32| {
+    system_scheduler.schedule(world.clone(), &|i: &i32| {
         println!("IN TASK 0");
-        std::thread::sleep(std::time::Duration::from_millis(5));
         println!("ENDING TASK 0");
     });
-    system_scheduler.schedule(&world, &|i: &i32| {
+    system_scheduler.schedule(world.clone(), &|i: &i32| {
         println!("IN TASK 1");
+        std::thread::sleep(std::time::Duration::from_millis(5));
         println!("ENDING TASK 1");
     });
-    system_scheduler.schedule(&world, &|i: &mut i32| {
+    system_scheduler.schedule(world.clone(), &|i: &mut i32| {
         println!("IN TASK 2");
         println!("ENDING TASK 2");
     });
@@ -285,4 +299,30 @@ fn schedule_systems() {
     std::thread::sleep(std::time::Duration::from_millis(30));
 }
 
-// Tasks must be declared in order.
+#[test]
+fn exclusive_system() {
+    ktasks::create_workers(3);
+
+    let mut world = World::new();
+    world.spawn((10 as i32,));
+
+    let world = Arc::new(RwLock::new(world));
+    let mut system_scheduler = SystemScheduler::new();
+    system_scheduler.schedule(world.clone(), &|i: &i32| {
+        println!("IN TASK 0");
+        println!("ENDING TASK 0");
+    });
+    system_scheduler.schedule(world.clone(), &|world: ExclusiveWorld| {
+        println!("IN TASK 1");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        println!("ENDING TASK 1");
+    });
+    system_scheduler.schedule(world.clone(), &|i: &i32| {
+        println!("IN TASK 2");
+        println!("ENDING TASK 2");
+    });
+
+    system_scheduler.run();
+    ktasks::run_current_thread_tasks();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+}

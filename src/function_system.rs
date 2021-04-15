@@ -1,6 +1,6 @@
 use crate::{AsSystemArg, GetQueryInfoTrait, QueryInfoTrait, QueryTrait, World, WorldBorrow};
 
-pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params> {
+pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params>: Sized {
     type Thing;
     /// Borrow the system and run it.
     // Maybe there's a way to unify `run_borrow` and `run`?
@@ -10,7 +10,13 @@ pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params> {
     /// This function exists to allow for slightly nicer syntax in the common case.
     fn run(self, world: &'world_borrow World) -> Option<RETURN>;
 
-    fn borrows(&self, world: &World) -> Vec<WorldBorrow>;
+    /// Run a system with exclusive access to the World
+
+    fn run_exclusive(self, world: &'world_borrow mut World) -> Option<RETURN> {
+        None
+    }
+
+    fn system_info(&self, world: &World) -> SystemInfo;
 }
 
 pub trait IntoSystem<P, R> {
@@ -34,13 +40,69 @@ where
         Some(self())
     }
 
-    #[allow(non_snake_case)]
     fn run(mut self, _world: &'world_borrow World) -> Option<RETURN> {
         Some(self())
     }
 
-    fn borrows(&self, _world: &World) -> Vec<WorldBorrow> {
-        Vec::new()
+    fn run_exclusive(mut self, _world: &'world_borrow mut World) -> Option<RETURN> {
+        Some(self())
+    }
+
+    fn system_info(&self, _world: &World) -> SystemInfo {
+        SystemInfo {
+            exclusive: false,
+            borrows: Vec::new(),
+        }
+    }
+}
+
+pub struct SystemInfo {
+    pub borrows: Vec<WorldBorrow>,
+    pub exclusive: bool,
+}
+
+impl<'world_borrow, FUNC, R: 'world_borrow, A: QueryTrait<'world_borrow>>
+    FunctionSystem<'world_borrow, R, (A,)> for FUNC
+where
+    FUNC:
+        FnMut(A) -> R + FnMut(<<A as QueryTrait<'world_borrow>>::Result as AsSystemArg>::Arg) -> R,
+{
+    type Thing = ();
+
+    #[allow(non_snake_case)]
+    #[allow(unused_variables)]
+    fn run_borrow(&mut self, world: &'world_borrow World) -> Option<R> {
+        let a = <A as GetQueryInfoTrait>::query_info(world)?;
+        let mut a = <A as QueryTrait<'world_borrow>>::get_query(world, &a)?;
+        Some(self(a.as_system_arg()))
+    }
+
+    #[allow(non_snake_case)]
+    fn run(mut self, world: &'world_borrow World) -> Option<R> {
+        let a = <A as GetQueryInfoTrait>::query_info(world)?;
+        let mut a = <A as QueryTrait<'world_borrow>>::get_query(world, &a)?;
+        Some(self(a.as_system_arg()))
+    }
+
+    // This could definitely be improved.
+    // The borrows should not have to be requested again
+    // to run later.
+    #[allow(non_snake_case)]
+    fn system_info(&self, world: &World) -> SystemInfo {
+        let a = <A as GetQueryInfoTrait>::query_info(world).unwrap();
+
+        let exclusive = a.exclusive();
+        SystemInfo {
+            borrows: a.borrows().into(),
+            exclusive,
+        }
+    }
+
+    #[allow(non_snake_case)]
+    fn run_exclusive(mut self, world: &'world_borrow mut World) -> Option<R> {
+        let a = <A as GetQueryInfoTrait>::query_info(world)?;
+        let mut a = <A as QueryTrait<'world_borrow>>::get_query_exclusive(world, &a)?;
+        Some(self(a.as_system_arg()))
     }
 }
 
@@ -50,6 +112,7 @@ macro_rules! system_impl {
         where
         FUNC: FnMut($($name,)*) -> R + FnMut($(<<$name as QueryTrait<'world_borrow>>::Result as AsSystemArg>::Arg,)*) -> R,
         {
+
             type Thing = ();
 
             #[allow(non_snake_case)]
@@ -71,17 +134,22 @@ macro_rules! system_impl {
             // The borrows should not have to be requested again
             // to run later.
             #[allow(non_snake_case)]
-            fn borrows(&self, world: &World) -> Vec<WorldBorrow> {
-                let mut v = Vec::new();
+            fn system_info(&self, world: &World) -> SystemInfo {
+                let mut borrows = Vec::new();
                 $(let $name = <$name as GetQueryInfoTrait>::query_info(world).unwrap();)*
-                $(v.extend_from_slice($name.borrows());)*
-                v
+                $(borrows.extend_from_slice($name.borrows());)*
+
+               let exclusive = false $(|| $name.exclusive())*;
+                SystemInfo {
+                    borrows,
+                    exclusive
+                }
             }
         }
     };
 }
 
-system_impl! {A}
+//system_impl! {A}
 system_impl! {A, B}
 system_impl! {A, B, C}
 system_impl! {A, B, C, D}
