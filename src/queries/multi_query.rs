@@ -163,9 +163,21 @@ fn get_archetype_info<const SIZE: usize>(
     world: &World,
     mut type_ids: [Requirement; SIZE],
 ) -> Option<Vec<ArchetypeInfo<SIZE>>> {
-    type_ids.sort_unstable_by_key(|r| r.type_id);
+    // type_ids.sort_unstable_by_key(|r| r.type_id);
 
-    let mut archetypes = Vec::new();
+    let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids);
+    let archetypes = archetypes
+        .into_iter()
+        .map(|index| {
+            let mut channels = [0; SIZE];
+            for (channel, requirement) in
+                world.archetypes[index].channels.iter().zip(type_ids.iter())
+            {}
+            ArchetypeInfo { index, channels }
+        })
+        .collect();
+
+    /*
     world
         .storage_graph
         .iterate_matching_storage(
@@ -187,6 +199,7 @@ fn get_archetype_info<const SIZE: usize>(
             },
         )
         .ok()?;
+        */
     Some(archetypes)
 }
 

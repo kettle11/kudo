@@ -1,12 +1,14 @@
 use std::any::TypeId;
 
 use crate::{
-    Archetype, AsSystemArg, ComponentBundle, ComponentChannelStorage, Entities, GetQueryDirect,
-    GetQueryInfoTrait, InsertHandle, Query, QueryParameters, QueryTrait, StorageGraph,
+    storage_lookup::StorageLookup, Archetype, AsSystemArg, ComponentBundle,
+    ComponentChannelStorage, Entities, GetQueryDirect, GetQueryInfoTrait, InsertHandle, Query,
+    QueryParameters, QueryTrait, StorageGraph,
 };
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_graph: StorageGraph,
+    pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
 }
 
@@ -34,6 +36,7 @@ impl World {
             archetypes: Vec::new(),
             entities: Entities::new(),
             storage_graph: StorageGraph::new(),
+            storage_lookup: StorageLookup::new(),
         }
     }
 

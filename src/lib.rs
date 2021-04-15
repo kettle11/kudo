@@ -17,6 +17,9 @@ pub use iterators::*;
 pub use queries::*;
 pub use world::*;
 
+mod sparse_set;
+mod storage_lookup;
+
 #[cfg(feature = "scheduler")]
 mod scheduler;
 

@@ -1,6 +1,5 @@
 type ENTITY_INDEX = usize;
-
-struct SparseSet<T> {
+pub struct SparseSet<T> {
     indices: Vec<Option<usize>>,
     data: Vec<T>,
     data_index: Vec<usize>,
@@ -47,5 +46,9 @@ impl<T> SparseSet<T> {
 
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    pub fn data(&self) -> &Vec<T> {
+        &self.data
     }
 }
