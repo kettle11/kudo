@@ -1,7 +1,6 @@
 use std::{any::TypeId, collections::HashMap};
 
 use crate::sparse_set::*;
-use crate::{Requirement, RequirementType};
 
 // This operates under the assumptipn that Archetypes are never deallocated.
 pub struct StorageLookup {
@@ -17,6 +16,31 @@ pub struct ComponentArchetypeInfo {
 pub struct ComponentInfo {
     pub archetypes: SparseSet<ComponentArchetypeInfo>,
 }
+
+#[derive(Clone, Copy)]
+pub enum FilterType {
+    With,
+    Without,
+    Optional,
+}
+#[derive(Clone, Copy)]
+pub struct Filter {
+    pub filter_type: FilterType,
+    pub type_id: TypeId,
+}
+
+#[derive(Clone, Debug)]
+pub struct ArchetypeMatch<const CHANNEL_COUNT: usize> {
+    pub archetype_index: usize,
+    pub channels: [usize; CHANNEL_COUNT],
+}
+
+/*
+/// Which archetypes match this query
+pub struct MatchInfo<const CHANNEL_COUNT: usize> {
+    archetypes: Vec<ArchetypeMatch>
+}
+*/
 
 impl StorageLookup {
     pub fn new() -> Self {
@@ -51,118 +75,155 @@ impl StorageLookup {
         }
     }
 
-    /// Find all archetypes that match the requirements.
-    /// Type IDs do not need to be sorted.
-    // This should be amended to take a separate list of filters
-    // that can include `With` or `Without`.
-    // The actual requirements create additional filters that must be checked.
-    // So some filters are associated with a storage and some are not.
-    // The filters are then sorted by how many archetypes they match, and they
-    // are iterated in order.
-    // It might be better to just rewrite the below function to achieve that goal.
-    pub fn get_matching_archetypes<const SIZE: usize>(
+    pub fn get_matching_archetypes<const REQUIREMENT_COUNT: usize>(
         &self,
-        requirements: &[Requirement; SIZE],
-    ) -> Vec<usize> {
+        requirements: &[Filter; REQUIREMENT_COUNT],
+        filters: &[Filter],
+    ) -> Vec<ArchetypeMatch<REQUIREMENT_COUNT>> {
         #[derive(Clone, Copy)]
-        struct TempComponentInfo<'a> {
+        struct InnerFilter<'a> {
+            requirement_index: Option<usize>,
             component_info: Option<&'a ComponentInfo>,
-            requirement: Requirement,
+            filter: Filter,
         }
 
-        let mut matching_archetypes = Vec::new();
+        let mut inner_filters = Vec::with_capacity(REQUIREMENT_COUNT + filters.len());
 
-        // If there were a way to collect into a fixed size array we wouldn't have to use an Option and a bunch of unwraps.
-        // This stores the original index (before being sorted)
-        let mut component_info: [TempComponentInfo; SIZE] = [TempComponentInfo {
-            component_info: None,
-            // We aren't actually using the TypeID of bool, it's replaced in the next step.
-            requirement: Requirement::with_(0, TypeId::of::<bool>()),
-        }; SIZE];
-        for (requirement, component_info) in requirements.iter().zip(component_info.iter_mut()) {
-            if let Some(info) = self.component_info.get(&requirement.type_id) {
-                *component_info = TempComponentInfo {
-                    component_info: Some(info),
-                    requirement: *requirement,
+        for (i, filter) in requirements.iter().enumerate() {
+            let component_info = self.component_info.get(&filter.type_id);
+            inner_filters.push(InnerFilter {
+                requirement_index: Some(i),
+                component_info,
+                filter: Filter {
+                    type_id: filter.type_id,
+                    filter_type: filter.filter_type,
+                },
+            });
+
+            // If we don't have this component nothing can match the query.
+            match filter.filter_type {
+                FilterType::With => {
+                    if component_info.is_none() {
+                        return Vec::new();
+                    }
                 }
-            } else {
-                match requirement.requirement_type {
-                    RequirementType::Without | RequirementType::Optional => {}
-                    RequirementType::With => {}
-                }
+                _ => {}
             }
         }
 
-        // Sort so that we can iterate the requirements with the fewest matching archetypes first.
-        component_info.sort_by_key(|f| match f.requirement.requirement_type {
-            RequirementType::With => f.component_info.unwrap().archetypes.len(),
-            RequirementType::Without => {
-                if let Some(c) = f.component_info {
+        // Identical to the above, but without a requirement_index.
+        for filter in filters.iter() {
+            let component_info = self.component_info.get(&filter.type_id);
+            inner_filters.push(InnerFilter {
+                requirement_index: None,
+                component_info,
+                filter: Filter {
+                    type_id: filter.type_id,
+                    filter_type: filter.filter_type,
+                },
+            });
+
+            // If we don't have this component nothing can match the query.
+            match filter.filter_type {
+                FilterType::With => {
+                    if component_info.is_none() {
+                        return Vec::new();
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        inner_filters.sort_by_key(|filter| match filter.filter.filter_type {
+            FilterType::With => filter.component_info.unwrap().archetypes.len(),
+            FilterType::Optional => usize::MAX,
+            FilterType::Without => {
+                if let Some(c) = filter.component_info {
                     self.archetype_count - c.archetypes.len()
                 } else {
                     usize::MAX
                 }
             }
-            RequirementType::Optional => usize::MAX,
         });
 
-        fn check_further_matches(archetype: usize, component_info: &[TempComponentInfo]) -> bool {
-            for v in component_info[1..].iter() {
-                let matches = v
+        fn check_further_matches<const REQUIREMENT_COUNT: usize>(
+            archetype: usize,
+            inner_filters: &[InnerFilter],
+            archetype_match: &mut ArchetypeMatch<REQUIREMENT_COUNT>,
+        ) -> bool {
+            for inner_filter in inner_filters.iter() {
+                let matches = inner_filter
                     .component_info
                     .unwrap()
                     .archetypes
-                    .get(archetype)
-                    .is_some();
+                    .get(archetype);
 
-                match v.requirement.requirement_type {
-                    RequirementType::With => {
-                        if !matches {
+                match inner_filter.filter.filter_type {
+                    FilterType::With => {
+                        if !matches.is_some() {
                             return false;
                         }
                     }
-                    RequirementType::Without => {
-                        if matches {
+                    FilterType::Optional => {}
+                    FilterType::Without => {
+                        if matches.is_some() {
                             return false;
                         }
                     }
-                    RequirementType::Optional => {}
+                }
+
+                if let Some(component_archetype_info) = matches {
+                    if let Some(requirement_index) = inner_filter.requirement_index {
+                        archetype_match.channels[requirement_index] =
+                            component_archetype_info.channel_in_archetype;
+                    }
                 }
             }
             true
         }
-        match component_info[0].requirement.requirement_type {
-            RequirementType::With => {
+
+        let mut archetype_match = ArchetypeMatch {
+            archetype_index: 0,
+            channels: [0; REQUIREMENT_COUNT],
+        };
+
+        let mut archetype_matches: Vec<ArchetypeMatch<REQUIREMENT_COUNT>> = Vec::new();
+
+        let (first_filter, tail_filters) = inner_filters.split_first().unwrap();
+        match first_filter.filter.filter_type {
+            FilterType::With => {
                 // Iterate through the archetypes of the component with the fewest archetypes.
                 // For each archetype check if the next component contain that archetype.
-                for archetype in component_info[0]
+                for component_archetype_info in first_filter
                     .component_info
                     .unwrap()
                     .archetypes
                     .data()
                     .iter()
                 {
-                    if check_further_matches(archetype.archetype_index, &component_info[1..]) {
+                    archetype_match.archetype_index = component_archetype_info.archetype_index;
+                    if let Some(requirement_index) = first_filter.requirement_index {
+                        archetype_match.channels[requirement_index] =
+                            component_archetype_info.channel_in_archetype
+                    }
+
+                    if check_further_matches(
+                        component_archetype_info.archetype_index,
+                        tail_filters,
+                        &mut archetype_match,
+                    ) {
                         // This archetype matches!
-                        matching_archetypes.push(archetype.archetype_index);
+                        archetype_matches.push(archetype_match.clone());
                     }
                 }
             }
-            RequirementType::Without => {
-                let c = component_info[0].component_info.unwrap();
-                for archetype in 0..self.archetype_count {
-                    if c.archetypes.get(archetype).is_none()
-                        && check_further_matches(archetype, &component_info[1..])
-                    {
-                        // This archetype matches!
-                        matching_archetypes.push(archetype);
-                    }
-                }
+            FilterType::Without => {
+                todo!()
             }
             // This is only possible if every Archetype matches!
             // This is most likely to happen if all queries are Optional.
-            RequirementType::Optional => matching_archetypes.extend(0..self.archetype_count),
+            FilterType::Optional => todo!(),
         }
-        matching_archetypes
+        archetype_matches
     }
 }

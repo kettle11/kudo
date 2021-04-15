@@ -32,7 +32,10 @@ macro_rules! component_bundle_impl {
                         $(archetype.push_channel(ComponentChannelStorage::new::<$name>());)*
                         // Sort the channels
                         archetype.sort_channels();
-                        world.insert_archetype(insert_handle, archetype)
+                        let new_archetype_index = world.insert_archetype(insert_handle, archetype);
+                        world.storage_lookup
+                            .new_archetype(new_archetype_index, &type_ids);
+                        new_archetype_index
                     }
                 };
                 let archetype = &mut world.archetypes[archetype_index];

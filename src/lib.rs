@@ -19,6 +19,7 @@ pub use world::*;
 
 mod sparse_set;
 mod storage_lookup;
+use storage_lookup::*;
 
 #[cfg(feature = "scheduler")]
 mod scheduler;

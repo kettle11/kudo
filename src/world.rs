@@ -88,7 +88,10 @@ impl World {
                     i += 1;
                 }
 
-                self.insert_archetype(insert_handle, new_archetype)
+                let new_archetype_index = self.insert_archetype(insert_handle, new_archetype);
+                self.storage_lookup
+                    .new_archetype(new_archetype_index, &type_ids);
+                new_archetype_index
             }
         };
 
@@ -186,7 +189,11 @@ impl World {
                 if i == insert_position {
                     new_archetype.push_channel(ComponentChannelStorage::new::<T>());
                 }
-                self.insert_archetype(insert_handle, new_archetype)
+
+                let new_archetype_index = self.insert_archetype(insert_handle, new_archetype);
+                self.storage_lookup
+                    .new_archetype(new_archetype_index, &type_ids);
+                new_archetype_index
             }
         };
 

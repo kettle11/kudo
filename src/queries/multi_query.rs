@@ -1,12 +1,18 @@
 use super::*;
-use crate::{archetype::Archetype, iterators::*, Entity};
-use crate::{storage_graph::Requirement, ChainedIterator};
-use std::convert::TryInto;
+use crate::ChainedIterator;
+use crate::{
+    archetype::Archetype,
+    iterators::*,
+    storage_lookup::{Filter, FilterType},
+    Entity,
+};
 use std::{
     any::TypeId,
     iter::Zip,
     sync::{RwLockReadGuard, RwLockWriteGuard},
 };
+
+use crate::ArchetypeMatch;
 
 pub struct Query<'a, T: QueryParameters> {
     archetype_borrows: Vec<ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>>,
@@ -78,14 +84,8 @@ impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
     }
 }
 
-#[derive(Debug)]
-struct ArchetypeInfo<const CHANNELS: usize> {
-    index: usize,
-    channels: [usize; CHANNELS],
-}
-
 pub struct QueryInfo<const CHANNELS: usize> {
-    archetypes: Vec<ArchetypeInfo<CHANNELS>>,
+    archetypes: Vec<ArchetypeMatch<CHANNELS>>,
 }
 
 macro_rules! query_impl{
@@ -106,14 +106,14 @@ macro_rules! query_impl{
             fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
                 let mut archetype_borrows = Vec::with_capacity(query_info.archetypes.len());
                 for archetype_info in &query_info.archetypes {
-                    let archetype = &world.archetypes[archetype_info.index];
+                    let archetype = &world.archetypes[archetype_info.archetype_index];
                     let [$($name,)*] = archetype_info.channels;
 
                     archetype_borrows.push(ArchetypeBorrow {
                         component_borrows: (
                             $(<$name as QueryParameterBorrow<'a>>::borrow(archetype, $name)?,)*
                         ),
-                        archetype_index: archetype_info.index,
+                        archetype_index: archetype_info.archetype_index,
                         entities: archetype.entities.read().unwrap(),
                     })
                 }
@@ -129,15 +129,11 @@ macro_rules! query_impl{
         impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for Query<'a, ($($name,)*)> {
             type QueryInfo = QueryInfo<$count>;
             fn query_info(world: &World) -> Option<Self::QueryInfo> {
-                let mut type_ids: [Requirement; $count] = [
-                    $(Requirement::with_(0, $name::type_id())),*
+                let type_ids: [Filter; $count] = [
+                    $(Filter{filter_type: FilterType::With, type_id: $name::type_id()}),*
                 ];
-                // This is a poor way of filling out this requirement.
-                for (i, r) in type_ids.iter_mut().enumerate() {
-                    r.original_index = i;
-                }
 
-                let archetypes = get_archetype_info(world, type_ids)?;
+                let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
                 Some(QueryInfo { archetypes })
             }
         }
@@ -157,51 +153,6 @@ query_impl! { 8, A, B, C, D, E, F, G, H}
 query_impl! { 9, A, B, C, D, E, F, G, H, I}
 query_impl! { 10, A, B, C, D, E, F, G, H, I, J}
 query_impl! { 11, A, B, C, D, E, F, G, H, I, J, K}
-
-// This helper means that below block of code can be moved out of a macro.
-fn get_archetype_info<const SIZE: usize>(
-    world: &World,
-    mut type_ids: [Requirement; SIZE],
-) -> Option<Vec<ArchetypeInfo<SIZE>>> {
-    // type_ids.sort_unstable_by_key(|r| r.type_id);
-
-    let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids);
-    let archetypes = archetypes
-        .into_iter()
-        .map(|index| {
-            let mut channels = [0; SIZE];
-            for (channel, requirement) in
-                world.archetypes[index].channels.iter().zip(type_ids.iter())
-            {}
-            ArchetypeInfo { index, channels }
-        })
-        .collect();
-
-    /*
-    world
-        .storage_graph
-        .iterate_matching_storage(
-            &type_ids,
-            #[allow(unused_variables)]
-            |archetype_index, channels| -> Result<(), ()> {
-                // This feels a bit inelegant.
-                let mut new_channels = [0; SIZE];
-                for i in 0..SIZE {
-                    new_channels[type_ids[i].original_index] = channels[i];
-                }
-
-                archetypes.push(ArchetypeInfo {
-                    index: archetype_index,
-                    // LEFT OFF HERE: This needs to be rearranged into the original arrangement.
-                    channels: new_channels,
-                });
-                Ok(())
-            },
-        )
-        .ok()?;
-        */
-    Some(archetypes)
-}
 
 impl<'a, const CHANNELS: usize> QueryInfoTrait for QueryInfo<CHANNELS> {
     fn borrows(&self) -> &[WorldBorrow] {

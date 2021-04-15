@@ -35,13 +35,20 @@ pub fn fragmented_iter(b: &mut Bencher) {
     let mut world = World::new();
 
     create_entities!(world; A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z);
-    let mut query = world.query::<(&mut Data,)>().unwrap();
 
     b.iter(|| {
+        let mut query = world.query::<(&mut Data,)>().unwrap();
+
         for mut data in &mut query {
             data.0 *= 2.0;
         }
     });
+
+    /*
+    for data in &query {
+        assert!(data.0 == 2.0)
+    }
+    */
 }
 benchmark_group!(benches, iterate_100k, fragmented_iter);
 benchmark_main!(benches);

@@ -17,8 +17,8 @@ impl<T> SparseSet<T> {
     pub fn insert(&mut self, entity_index: ENTITY_INDEX, data: T) {
         // This line highlights the weakness of sparse sets.
         // They use a bunch of memory!
-        if self.indices.len() < entity_index {
-            self.indices.resize(entity_index, None);
+        if self.indices.len() <= entity_index {
+            self.indices.resize(entity_index + 1, None);
         }
         let new_index = self.data.len();
         self.indices[entity_index] = Some(new_index);
