@@ -56,7 +56,10 @@ pub trait QueryParameter: for<'a> QueryParameterBorrow<'a> {
 
 pub trait QueryParameterBorrow<'a> {
     type ParameterBorrow;
-    fn borrow(archetype: &'a Archetype, channel_index: usize) -> Option<Self::ParameterBorrow>;
+    fn borrow(
+        archetype: &'a Archetype,
+        channel_index: usize,
+    ) -> Result<Self::ParameterBorrow, Error>;
 }
 
 impl<T: 'static> QueryParameter for &T {
@@ -70,7 +73,10 @@ impl<T: 'static> QueryParameter for &T {
 
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &T {
     type ParameterBorrow = RwLockReadGuard<'a, Vec<T>>;
-    fn borrow(archetype: &'a Archetype, channel_index: usize) -> Option<Self::ParameterBorrow> {
+    fn borrow(
+        archetype: &'a Archetype,
+        channel_index: usize,
+    ) -> Result<Self::ParameterBorrow, Error> {
         archetype.borrow_channel(channel_index)
     }
 }
@@ -86,7 +92,10 @@ impl<T: 'static> QueryParameter for &mut T {
 
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
     type ParameterBorrow = RwLockWriteGuard<'a, Vec<T>>;
-    fn borrow(archetype: &'a Archetype, channel_index: usize) -> Option<Self::ParameterBorrow> {
+    fn borrow(
+        archetype: &'a Archetype,
+        channel_index: usize,
+    ) -> Result<Self::ParameterBorrow, Error> {
         archetype.borrow_channel_mut(channel_index)
     }
 }
@@ -111,7 +120,7 @@ macro_rules! query_impl{
             type Result = Option<Query<'a, ($($name,)*)>>;
 
             #[allow(non_snake_case)]
-            fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
+            fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
                 let mut archetype_borrows = Vec::with_capacity(query_info.archetypes.len());
                 for archetype_info in &query_info.archetypes {
                     let archetype = &world.archetypes[archetype_info.archetype_index];
@@ -125,7 +134,7 @@ macro_rules! query_impl{
                         entities: archetype.entities.read().unwrap(),
                     })
                 }
-                Some(Some(Query { archetype_borrows }))
+                Ok(Some(Query { archetype_borrows }))
             }
         }
 
@@ -136,7 +145,7 @@ macro_rules! query_impl{
 
         impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for Query<'a, ($($name,)*)> {
             type QueryInfo = QueryInfo<$count>;
-            fn query_info(world: &World) -> Option<Self::QueryInfo> {
+            fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
                 let type_ids: [Filter; $count] = [
                     $(Filter{filter_type: FilterType::With, type_id: $name::type_id()}),*
                 ];
@@ -152,7 +161,7 @@ macro_rules! query_impl{
                 }
 
                 let write = [$($name::write(),)*];
-                Some(QueryInfo { archetypes, write})
+                Ok(QueryInfo { archetypes, write})
             }
         }
 

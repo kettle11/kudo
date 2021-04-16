@@ -1,4 +1,4 @@
-use crate::Entity;
+use crate::{Entity, Error};
 use std::any::{Any, TypeId};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
@@ -54,27 +54,27 @@ impl Archetype {
     pub(crate) fn borrow_channel<T: 'static>(
         &self,
         channel_index: usize,
-    ) -> Option<RwLockReadGuard<Vec<T>>> {
-        self.channels[channel_index]
+    ) -> Result<RwLockReadGuard<Vec<T>>, Error> {
+        Ok(self.channels[channel_index]
             .component_channel
             .to_any()
             .downcast_ref::<RwLock<Vec<T>>>()
             .unwrap()
             .try_read()
-            .ok()
+            .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))?)
     }
 
     pub(crate) fn borrow_channel_mut<T: 'static>(
         &self,
         channel_index: usize,
-    ) -> Option<RwLockWriteGuard<Vec<T>>> {
-        self.channels[channel_index]
+    ) -> Result<RwLockWriteGuard<Vec<T>>, Error> {
+        Ok(self.channels[channel_index]
             .component_channel
             .to_any()
             .downcast_ref::<RwLock<Vec<T>>>()
             .unwrap()
             .try_write()
-            .ok()
+            .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))?)
     }
 
     pub(crate) fn push_channel(&mut self, c: ComponentChannelStorage) {

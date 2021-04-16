@@ -7,7 +7,7 @@ pub use exclusive_world_query::*;
 pub use multi_query::*;
 pub use single_query::*;
 
-use crate::World;
+use crate::{Error, World};
 
 #[derive(Clone)]
 pub enum ReadOrWrite {
@@ -41,21 +41,21 @@ pub trait QueryInfoTrait {
 
 pub trait GetQueryInfoTrait {
     type QueryInfo: QueryInfoTrait;
-    fn query_info(world: &World) -> Option<Self::QueryInfo>;
+    fn query_info(world: &World) -> Result<Self::QueryInfo, Error>;
 }
 
 pub trait QueryTrait<'a>: GetQueryInfoTrait {
     type Result: for<'b> AsSystemArg<'b>;
 
     /// This is used to actually construct the query.
-    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result>;
+    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error>;
 
     /// Some queries may need exclusive access to the World, this is used to construct those queries.
     /// But most queries will just work the same if they have exclusive access.
     fn get_query_exclusive(
         world: &'a mut World,
         query_info: &Self::QueryInfo,
-    ) -> Option<Self::Result> {
+    ) -> Result<Self::Result, Error> {
         Self::get_query(world, query_info)
     }
 

@@ -2,8 +2,8 @@ use std::any::TypeId;
 
 use crate::{
     storage_lookup::StorageLookup, Archetype, AsSystemArg, ComponentBundle,
-    ComponentChannelStorage, Entities, GetQueryDirect, GetQueryInfoTrait, InsertHandle, Query,
-    QueryParameters, QueryTrait, StorageGraph,
+    ComponentChannelStorage, Entities, Error, GetQueryDirect, GetQueryInfoTrait, InsertHandle,
+    Query, QueryParameters, QueryTrait, StorageGraph,
 };
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
@@ -269,15 +269,14 @@ impl World {
         &'world_borrow self,
     ) -> Result<
         <<Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result as GetQueryDirect>::Arg,
-        (),
+        Error,
     >
     where
         Query<'world_borrow, T>: QueryTrait<'world_borrow>,
         <Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result: GetQueryDirect,
     {
-        let query_info =
-            <Query<'world_borrow, T> as GetQueryInfoTrait>::query_info(self).ok_or(())?;
-        let result = <Query<'world_borrow, T>>::get_query(self, &query_info).ok_or(())?;
+        let query_info = <Query<'world_borrow, T> as GetQueryInfoTrait>::query_info(self)?;
+        let result = <Query<'world_borrow, T>>::get_query(self, &query_info)?;
         Ok(result.get_query_direct())
     }
 

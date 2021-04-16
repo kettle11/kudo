@@ -2,9 +2,12 @@
 // Is there a way to reduce it?
 
 use ktasks::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::{collections::HashSet, sync::Mutex};
+use std::{
+    panic::Location,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 struct Task {
     waiting_on: AtomicUsize,
@@ -59,7 +62,7 @@ impl Task {
                     all_tasks[*task].decrement_and_try_run();
                 }
             };
-            
+
             if self.main_thread_task {
                 spawn_main(inner_spawn).run();
             } else {
@@ -228,8 +231,8 @@ pub struct SystemScheduler {
 }
 
 enum SystemType {
-    Exclusive(Box<dyn FnMut(&mut World) -> Option<()> + Send>),
-    NonExclusive(Box<dyn FnMut(&World) -> Option<()> + Send>),
+    Exclusive(Box<dyn FnMut(&mut World) + Send>),
+    NonExclusive(Box<dyn FnMut(&World) + Send>),
 }
 struct SystemToBeScheduled {
     get_borrows: Box<dyn Fn(&World) -> ResourceBorrows>,
@@ -245,17 +248,37 @@ impl SystemScheduler {
         }
     }
 
+    #[track_caller]
     fn schedule_inner<P, F: for<'a> FunctionSystem<'a, (), P> + Send + 'static + Copy>(
         &mut self,
         system: F,
         main_thread_task: bool,
     ) {
+        let location = Location::caller();
+        let get_borrows = Box::new(move |world: &World| match system.system_info(world) {
+            Err(e) => {
+                println!("ERROR: {:?}", e);
+                panic!(
+                    "Error in system: {}:{:?}:{:?}",
+                    location.file(),
+                    location.line(),
+                    location.column()
+                );
+            }
+            Ok(system_info) => system_info.borrows,
+        });
         if system.exclusive() {
-            let get_borrows = Box::new(move |world: &World| {
-                let system_info = system.system_info(world);
-                system_info.borrows
+            let run_system = Box::new(move |world: &mut World| {
+                system.run_exclusive(world).unwrap_or_else(|e| {
+                    println!("ERROR: {:?}", e);
+                    panic!(
+                        "Error in system: {}:{:?}:{:?}",
+                        location.file(),
+                        location.line(),
+                        location.column()
+                    );
+                })
             });
-            let run_system = Box::new(move |world: &mut World| system.run_exclusive(world));
 
             self.systems.push(SystemToBeScheduled {
                 get_borrows,
@@ -263,11 +286,16 @@ impl SystemScheduler {
                 main_thread_task,
             })
         } else {
-            let get_borrows = Box::new(move |world: &World| {
-                let system_info = system.system_info(world);
-                system_info.borrows
+            let run_system = Box::new(move |world: &World| {
+                system.run(world).unwrap_or_else(|e| {
+                    println!("ERROR: {:?}", e);
+                    panic!(
+                        "Error caused by: {:?} {:?}",
+                        location.file(),
+                        location.line()
+                    );
+                });
             });
-            let run_system = Box::new(move |world: &World| system.run(world));
 
             self.systems.push(SystemToBeScheduled {
                 get_borrows,
@@ -276,6 +304,8 @@ impl SystemScheduler {
             })
         }
     }
+
+    #[track_caller]
     pub fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Send + 'static + Copy>(
         &mut self,
         system: F,
@@ -283,6 +313,7 @@ impl SystemScheduler {
         self.schedule_inner(system, false);
     }
 
+    #[track_caller]
     pub fn schedule_main_thread<P, F: for<'a> FunctionSystem<'a, (), P> + Send + 'static + Copy>(
         &mut self,
         system: F,
@@ -293,6 +324,8 @@ impl SystemScheduler {
     pub fn run(self, world: Arc<RwLock<World>>) {
         let world_ref = world.read().unwrap();
         let mut inner_scheduler = Scheduler::new();
+
+        println!("SYSTEMS COUNT: {:?}", self.systems.len());
         for system_to_be_scheudled in self.systems {
             let borrows = (system_to_be_scheudled.get_borrows)(&world_ref);
 

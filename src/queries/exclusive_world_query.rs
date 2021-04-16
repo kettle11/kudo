@@ -25,8 +25,8 @@ pub struct ExclusiveWorldQueryInfo {}
 
 impl GetQueryInfoTrait for ExclusiveWorld<'_> {
     type QueryInfo = ExclusiveWorldQueryInfo;
-    fn query_info(_world: &World) -> Option<Self::QueryInfo> {
-        Some(ExclusiveWorldQueryInfo {})
+    fn query_info(_world: &World) -> Result<Self::QueryInfo, Error> {
+        Ok(ExclusiveWorldQueryInfo {})
     }
 }
 
@@ -43,15 +43,15 @@ impl QueryInfoTrait for ExclusiveWorldQueryInfo {
 impl<'a> QueryTrait<'a> for ExclusiveWorld<'_> {
     type Result = &'a mut World;
 
-    fn get_query(_world: &'a World, _query_info: &Self::QueryInfo) -> Option<Self::Result> {
-        None
+    fn get_query(_world: &'a World, _query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+        Err(Error::MustRunExclusively)
     }
 
     fn get_query_exclusive(
         world: &'a mut World,
         _query_info: &Self::QueryInfo,
-    ) -> Option<Self::Result> {
-        Some(world)
+    ) -> Result<Self::Result, Error> {
+        Ok(world)
     }
 
     fn exclusive() -> bool {

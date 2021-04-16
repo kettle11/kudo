@@ -1,6 +1,7 @@
 mod archetype;
 mod component_bundle;
 mod entities;
+mod error;
 mod function_system;
 mod iterators;
 mod queries;
@@ -12,6 +13,7 @@ use entities::*;
 use storage_graph::*;
 
 pub use component_bundle::*;
+pub use error::*;
 pub use function_system::*;
 pub use iterators::*;
 pub use queries::*;

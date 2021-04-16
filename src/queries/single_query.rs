@@ -33,7 +33,7 @@ impl<'a> QueryInfoTrait for SingleQueryInfo {
     }
 }
 
-fn get_query_info<T: 'static>(world: &World, write: bool) -> Option<SingleQueryInfo> {
+fn get_query_info<T: 'static>(world: &World, write: bool) -> Result<SingleQueryInfo, Error> {
     let type_ids = [Requirement::with_(0, TypeId::of::<T>())];
     let mut archetype_channel_and_resource_index = None;
     // Intentionally ignore error here because error is used to early out
@@ -48,9 +48,10 @@ fn get_query_info<T: 'static>(world: &World, write: bool) -> Option<SingleQueryI
             Err(())
         })
         .ok();
-    let (archetype_index, channel_index, resource_index) = archetype_channel_and_resource_index?;
+    let (archetype_index, channel_index, resource_index) = archetype_channel_and_resource_index
+        .ok_or_else(|| Error::MissingComponent(std::any::type_name::<T>()))?;
 
-    Some(SingleQueryInfo {
+    Ok(SingleQueryInfo {
         archetype_index,
         channel_index,
         resource_index,
@@ -60,7 +61,7 @@ fn get_query_info<T: 'static>(world: &World, write: bool) -> Option<SingleQueryI
 
 impl<T: 'static> GetQueryInfoTrait for &T {
     type QueryInfo = SingleQueryInfo;
-    fn query_info(world: &World) -> Option<Self::QueryInfo> {
+    fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
         get_query_info::<T>(world, false)
     }
 }
@@ -68,16 +69,16 @@ impl<T: 'static> GetQueryInfoTrait for &T {
 impl<'a, T: 'static> QueryTrait<'a> for &T {
     type Result = RwLockReadGuard<'a, Vec<T>>;
 
-    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
+    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
         let borrow = world.archetypes[query_info.archetype_index]
             .borrow_channel::<T>(query_info.channel_index)?;
-        Some(borrow)
+        Ok(borrow)
     }
 }
 
 impl<T: 'static> GetQueryInfoTrait for &mut T {
     type QueryInfo = SingleQueryInfo;
-    fn query_info(world: &World) -> Option<Self::QueryInfo> {
+    fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
         get_query_info::<T>(world, true)
     }
 }
@@ -85,10 +86,10 @@ impl<T: 'static> GetQueryInfoTrait for &mut T {
 impl<'a, T: 'static> QueryTrait<'a> for &mut T {
     type Result = RwLockWriteGuard<'a, Vec<T>>;
 
-    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
+    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
         let borrow = world.archetypes[query_info.archetype_index]
             .borrow_channel_mut::<T>(query_info.channel_index)?;
-        Some(borrow)
+        Ok(borrow)
     }
 }
 

@@ -1,4 +1,6 @@
-use crate::{AsSystemArg, GetQueryInfoTrait, QueryInfoTrait, QueryTrait, ResourceBorrows, World};
+use crate::{
+    AsSystemArg, Error, GetQueryInfoTrait, QueryInfoTrait, QueryTrait, ResourceBorrows, World,
+};
 
 pub struct SystemInfo {
     pub borrows: ResourceBorrows,
@@ -9,30 +11,29 @@ pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params>: Sized {
     type Thing;
     /// Borrow the system and run it.
     // Maybe there's a way to unify `run_borrow` and `run`?
-    fn run_borrow(&mut self, world: &'world_borrow World) -> Option<RETURN>;
+    fn run_borrow(&mut self, world: &'world_borrow World) -> Result<RETURN, Error>;
 
     /// Run a system once.
     /// This function exists to allow for slightly nicer syntax in the common case.
-    fn run(self, world: &'world_borrow World) -> Option<RETURN>;
+    fn run(self, world: &'world_borrow World) -> Result<RETURN, Error>;
 
     /// Run a system with exclusive access to the World
-
-    fn run_exclusive(self, world: &'world_borrow mut World) -> Option<RETURN> {
-        None
+    fn run_exclusive(self, world: &'world_borrow mut World) -> Result<RETURN, Error> {
+        self.run(world)
     }
 
     fn exclusive(&self) -> bool;
-    fn system_info(&self, world: &World) -> SystemInfo;
+    fn system_info(&self, world: &World) -> Result<SystemInfo, Error>;
 }
 
 pub trait IntoSystem<P, R> {
-    fn box_system(self) -> Box<dyn FnMut(&World) -> Option<R> + Send + Sync>;
+    fn box_system(self) -> Box<dyn FnMut(&World) -> Result<R, Error> + Send + Sync>;
 }
 
 impl<P, R, S: for<'a> FunctionSystem<'a, R, P> + Sync + Send + 'static + Copy> IntoSystem<P, R>
     for S
 {
-    fn box_system(self) -> Box<dyn FnMut(&World) -> Option<R> + Send + Sync> {
+    fn box_system(self) -> Box<dyn FnMut(&World) -> Result<R, Error> + Send + Sync> {
         Box::new(move |world| self.run(world))
     }
 }
@@ -42,30 +43,30 @@ where
     FUNC: FnMut() -> RETURN,
 {
     type Thing = ();
-    fn run_borrow(&mut self, _world: &'world_borrow World) -> Option<RETURN> {
-        Some(self())
+    fn run_borrow(&mut self, _world: &'world_borrow World) -> Result<RETURN, Error> {
+        Ok(self())
     }
 
-    fn run(mut self, _world: &'world_borrow World) -> Option<RETURN> {
-        Some(self())
+    fn run(mut self, _world: &'world_borrow World) -> Result<RETURN, Error> {
+        Ok(self())
     }
 
-    fn run_exclusive(mut self, _world: &'world_borrow mut World) -> Option<RETURN> {
-        Some(self())
+    fn run_exclusive(mut self, _world: &'world_borrow mut World) -> Result<RETURN, Error> {
+        Ok(self())
     }
 
     fn exclusive(&self) -> bool {
         false
     }
 
-    fn system_info(&self, _world: &World) -> SystemInfo {
-        SystemInfo {
+    fn system_info(&self, _world: &World) -> Result<SystemInfo, Error> {
+        Ok(SystemInfo {
             exclusive: false,
             borrows: ResourceBorrows {
                 reads: Vec::new(),
                 writes: Vec::new(),
             },
-        }
+        })
     }
 }
 
@@ -79,31 +80,31 @@ where
 
     #[allow(non_snake_case)]
     #[allow(unused_variables)]
-    fn run_borrow(&mut self, world: &'world_borrow World) -> Option<R> {
+    fn run_borrow(&mut self, world: &'world_borrow World) -> Result<R, Error> {
         let a = <A as GetQueryInfoTrait>::query_info(world)?;
         let mut a = <A as QueryTrait<'world_borrow>>::get_query(world, &a)?;
-        Some(self(a.as_system_arg()))
+        Ok(self(a.as_system_arg()))
     }
 
     #[allow(non_snake_case)]
-    fn run(mut self, world: &'world_borrow World) -> Option<R> {
+    fn run(mut self, world: &'world_borrow World) -> Result<R, Error> {
         let a = <A as GetQueryInfoTrait>::query_info(world)?;
         let mut a = <A as QueryTrait<'world_borrow>>::get_query(world, &a)?;
-        Some(self(a.as_system_arg()))
+        Ok(self(a.as_system_arg()))
     }
 
     // This could definitely be improved.
     // The borrows should not have to be requested again
     // to run later.
     #[allow(non_snake_case)]
-    fn system_info(&self, world: &World) -> SystemInfo {
-        let a = <A as GetQueryInfoTrait>::query_info(world).unwrap();
+    fn system_info(&self, world: &World) -> Result<SystemInfo, Error> {
+        let a = <A as GetQueryInfoTrait>::query_info(world)?;
 
         let exclusive = A::exclusive();
-        SystemInfo {
+        Ok(SystemInfo {
             borrows: a.borrows().into(),
             exclusive,
-        }
+        })
     }
 
     fn exclusive(&self) -> bool {
@@ -111,10 +112,10 @@ where
     }
 
     #[allow(non_snake_case)]
-    fn run_exclusive(mut self, world: &'world_borrow mut World) -> Option<R> {
+    fn run_exclusive(mut self, world: &'world_borrow mut World) -> Result<R, Error> {
         let a = <A as GetQueryInfoTrait>::query_info(world)?;
         let mut a = <A as QueryTrait<'world_borrow>>::get_query_exclusive(world, &a)?;
-        Some(self(a.as_system_arg()))
+        Ok(self(a.as_system_arg()))
     }
 }
 
@@ -129,17 +130,17 @@ macro_rules! system_impl {
 
             #[allow(non_snake_case)]
             #[allow(unused_variables)]
-            fn run_borrow(&mut self, world: &'world_borrow World) -> Option<R> {
+            fn run_borrow(&mut self, world: &'world_borrow World) -> Result<R, Error> {
                 $(let $name = <$name as GetQueryInfoTrait>::query_info(world)?;)*
                 $(let mut $name = <$name as QueryTrait<'world_borrow>>::get_query(world, &$name)?;)*
-                Some(self($($name.as_system_arg(),)*))
+                Ok(self($($name.as_system_arg(),)*))
             }
 
             #[allow(non_snake_case)]
-            fn run(mut self, world: &'world_borrow World) -> Option<R> {
+            fn run(mut self, world: &'world_borrow World) -> Result<R, Error>{
                 $(let $name = <$name as GetQueryInfoTrait>::query_info(world)?;)*
                 $(let mut $name = <$name as QueryTrait<'world_borrow>>::get_query(world, &$name)?;)*
-                Some(self($($name.as_system_arg(),)*))
+                Ok(self($($name.as_system_arg(),)*))
             }
 
             fn exclusive(&self) -> bool {
@@ -149,16 +150,19 @@ macro_rules! system_impl {
             // The borrows should not have to be requested again
             // to run later.
             #[allow(non_snake_case)]
-            fn system_info(&self, world: &World) -> SystemInfo {
+            fn system_info(&self, world: &World) -> Result<SystemInfo, Error> {
                 let mut borrows = ResourceBorrows::new();
-                $(let $name = <$name as GetQueryInfoTrait>::query_info(world).unwrap();)*
+                println!("HI0");
+                $(let $name = <$name as GetQueryInfoTrait>::query_info(world)?;)*
+                println!("HI1");
+
                 $(borrows.extend(&$name.borrows());)*
 
-               let exclusive = false $(|| $name::exclusive())*;
-                SystemInfo {
+                let exclusive = false $(|| $name::exclusive())*;
+                Ok(SystemInfo {
                     borrows,
                     exclusive
-                }
+                })
             }
         }
     };
@@ -236,7 +240,7 @@ fn conflicting_queries() {
     world.spawn((3 as i32,));
     world.spawn((4 as i32,));
 
-    assert!((|_: &mut i32, _: &i32| {}).run(&world).is_none())
+    assert!((|_: &mut i32, _: &i32| {}).run(&world).is_err())
 }
 
 #[test]
