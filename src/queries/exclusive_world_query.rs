@@ -31,12 +31,12 @@ impl GetQueryInfoTrait for ExclusiveWorld<'_> {
 }
 
 impl QueryInfoTrait for ExclusiveWorldQueryInfo {
-    fn borrows(&self) -> &[WorldBorrow] {
-        &[]
-    }
-
-    fn exclusive(&self) -> bool {
-        true
+    fn borrows(&self) -> ResourceBorrows {
+        const R: ResourceBorrows = ResourceBorrows {
+            writes: Vec::new(),
+            reads: Vec::new(),
+        };
+        R
     }
 }
 
@@ -52,6 +52,10 @@ impl<'a> QueryTrait<'a> for ExclusiveWorld<'_> {
         _query_info: &Self::QueryInfo,
     ) -> Option<Self::Result> {
         Some(world)
+    }
+
+    fn exclusive() -> bool {
+        true
     }
 }
 

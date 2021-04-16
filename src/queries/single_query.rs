@@ -11,44 +11,57 @@ use std::{
 };
 
 pub struct SingleQueryInfo {
-    borrows: [WorldBorrow; 1],
+    archetype_index: usize,
+    channel_index: usize,
+    resource_index: usize,
+    write: bool,
 }
 
 impl<'a> QueryInfoTrait for SingleQueryInfo {
-    fn borrows(&self) -> &[WorldBorrow] {
-        &self.borrows
+    fn borrows(&self) -> ResourceBorrows {
+        if self.write {
+            ResourceBorrows {
+                reads: Vec::new(),
+                writes: vec![self.resource_index],
+            }
+        } else {
+            ResourceBorrows {
+                reads: vec![self.resource_index],
+                writes: Vec::new(),
+            }
+        }
     }
 }
 
-fn get_query_info<T: 'static>(
-    world: &World,
-    read_or_write: ReadOrWrite,
-) -> Option<SingleQueryInfo> {
+fn get_query_info<T: 'static>(world: &World, write: bool) -> Option<SingleQueryInfo> {
     let type_ids = [Requirement::with_(0, TypeId::of::<T>())];
-    let mut archetype_index_and_channel = None;
+    let mut archetype_channel_and_resource_index = None;
     // Intentionally ignore error here because error is used to early out
     world
         .storage_graph
         .iterate_matching_storage(&type_ids, |i, channels| -> Result<(), ()> {
-            archetype_index_and_channel = Some((i, channels[0]));
+            archetype_channel_and_resource_index = Some((
+                i,
+                channels[0],
+                world.archetypes[i].channels[channels[0]].channel_id,
+            ));
             Err(())
         })
         .ok();
-    let (archetype_index, channel_index) = archetype_index_and_channel?;
+    let (archetype_index, channel_index, resource_index) = archetype_channel_and_resource_index?;
 
     Some(SingleQueryInfo {
-        borrows: [WorldBorrow::Archetype {
-            archetype_index,
-            channel_index,
-            read_or_write,
-        }],
+        archetype_index,
+        channel_index,
+        resource_index,
+        write,
     })
 }
 
 impl<T: 'static> GetQueryInfoTrait for &T {
     type QueryInfo = SingleQueryInfo;
     fn query_info(world: &World) -> Option<Self::QueryInfo> {
-        get_query_info::<T>(world, ReadOrWrite::Read)
+        get_query_info::<T>(world, false)
     }
 }
 
@@ -56,14 +69,8 @@ impl<'a, T: 'static> QueryTrait<'a> for &T {
     type Result = RwLockReadGuard<'a, Vec<T>>;
 
     fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
-        let (archetype_index, channel_index) = match query_info.borrows[0] {
-            WorldBorrow::Archetype {
-                archetype_index,
-                channel_index,
-                ..
-            } => (archetype_index, channel_index),
-        };
-        let borrow = world.archetypes[archetype_index].borrow_channel::<T>(channel_index)?;
+        let borrow = world.archetypes[query_info.archetype_index]
+            .borrow_channel::<T>(query_info.channel_index)?;
         Some(borrow)
     }
 }
@@ -71,7 +78,7 @@ impl<'a, T: 'static> QueryTrait<'a> for &T {
 impl<T: 'static> GetQueryInfoTrait for &mut T {
     type QueryInfo = SingleQueryInfo;
     fn query_info(world: &World) -> Option<Self::QueryInfo> {
-        get_query_info::<T>(world, ReadOrWrite::Write)
+        get_query_info::<T>(world, true)
     }
 }
 
@@ -79,14 +86,8 @@ impl<'a, T: 'static> QueryTrait<'a> for &mut T {
     type Result = RwLockWriteGuard<'a, Vec<T>>;
 
     fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Option<Self::Result> {
-        let (archetype_index, channel_index) = match query_info.borrows[0] {
-            WorldBorrow::Archetype {
-                archetype_index,
-                channel_index,
-                ..
-            } => (archetype_index, channel_index),
-        };
-        let borrow = world.archetypes[archetype_index].borrow_channel_mut::<T>(channel_index)?;
+        let borrow = world.archetypes[query_info.archetype_index]
+            .borrow_channel_mut::<T>(query_info.channel_index)?;
         Some(borrow)
     }
 }

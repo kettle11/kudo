@@ -208,66 +208,88 @@ impl Scheduler {
 use crate::*;
 
 pub struct SystemScheduler {
-    inner_scheduler: Scheduler,
-    // systems: Vec<Box<dyn FnMut(&World) -> Option<()> + Send + Sync>>,
+    //  inner_scheduler: Scheduler,
+    systems: Vec<SystemToBeScheduled>,
+}
+
+enum SystemType {
+    Exclusive(Box<dyn Fn(&mut World) -> Option<()> + Send + Sync>),
+    NonExclusive(Box<dyn Fn(&World) -> Option<()> + Send + Sync>),
+}
+struct SystemToBeScheduled {
+    get_borrows: Box<dyn FnMut(&World) -> ResourceBorrows>,
+    run_system: SystemType,
 }
 
 impl SystemScheduler {
     pub fn new() -> Self {
         Self {
-            inner_scheduler: Scheduler::new(),
-            //  systems: Vec::new(),
+            //   inner_scheduler: Scheduler::new(),
+            systems: Vec::new(),
         }
     }
 
     pub fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Sync + Send + 'static + Copy>(
         &mut self,
-        world: Arc<RwLock<World>>,
         system: F,
     ) {
-        let system_info = system.system_info(&world.read().unwrap());
-        let mut reads = Vec::new();
-        let mut writes = Vec::new();
-
-        for borrow in system_info.borrows {
-            match borrow {
-                WorldBorrow::Archetype {
-                    archetype_index,
-                    read_or_write,
-                    ..
-                } => match read_or_write {
-                    ReadOrWrite::Read => reads.push(archetype_index),
-                    ReadOrWrite::Write => writes.push(archetype_index),
-                },
-            }
-        }
-
-        let world = world.clone();
-        // let boxed_system = system.box_system();
-
-        if system_info.exclusive {
-            let boxed_system = Box::new(move || {
-                system.run_exclusive(&mut world.write().unwrap()).unwrap();
+        if system.exclusive() {
+            let get_borrows = Box::new(move |world: &World| {
+                let system_info = system.system_info(world);
+                system_info.borrows
             });
-            self.inner_scheduler.add_task(
-                0..0,
-                0..self.inner_scheduler.resources.len(),
-                boxed_system,
-            );
+            let run_system = Box::new(move |world: &mut World| system.run_exclusive(world));
+
+            self.systems.push(SystemToBeScheduled {
+                get_borrows,
+                run_system: SystemType::Exclusive(run_system),
+            })
         } else {
-            let boxed_system = Box::new(move || {
-                system.run(&world.read().unwrap()).unwrap();
+            let get_borrows = Box::new(move |world: &World| {
+                let system_info = system.system_info(world);
+                system_info.borrows
             });
-            self.inner_scheduler.add_task(
-                reads.iter().copied(),
-                writes.iter().copied(),
-                boxed_system,
-            );
+            let run_system = Box::new(move |world: &World| system.run(world));
+
+            self.systems.push(SystemToBeScheduled {
+                get_borrows,
+                run_system: SystemType::NonExclusive(run_system),
+            })
         }
     }
 
-    pub fn run(self) {
-        self.inner_scheduler.run()
+    pub fn run(self, world: Arc<RwLock<World>>) {
+        let world_ref = world.read().unwrap();
+        let mut inner_scheduler = Scheduler::new();
+        for mut system in self.systems {
+            let borrows = (system.get_borrows)(&world_ref);
+
+            match system.run_system {
+                SystemType::NonExclusive(system) => {
+                    let world = world.clone();
+                    inner_scheduler.add_task(
+                        borrows.reads.iter().copied(),
+                        borrows.writes.iter().copied(),
+                        Box::new(move || {
+                            let world = world.read().unwrap();
+                            (system)(&world);
+                        }),
+                    )
+                }
+                SystemType::Exclusive(system) => {
+                    let world = world.clone();
+                    inner_scheduler.add_task(
+                        borrows.reads.iter().copied(),
+                        borrows.writes.iter().copied(),
+                        Box::new(move || {
+                            let mut world = world.write().unwrap();
+                            (system)(&mut world);
+                        }),
+                    )
+                }
+            }
+        }
+        inner_scheduler.run()
     }
 }
 
@@ -278,23 +300,23 @@ fn schedule_systems() {
     let mut world = World::new();
     world.spawn((10 as i32,));
 
-    let world = Arc::new(RwLock::new(world));
     let mut system_scheduler = SystemScheduler::new();
-    system_scheduler.schedule(world.clone(), &|i: &i32| {
+    system_scheduler.schedule(&|i: &i32| {
         println!("IN TASK 0");
         println!("ENDING TASK 0");
     });
-    system_scheduler.schedule(world.clone(), &|i: &i32| {
+    system_scheduler.schedule(&|i: &i32| {
         println!("IN TASK 1");
         std::thread::sleep(std::time::Duration::from_millis(5));
         println!("ENDING TASK 1");
     });
-    system_scheduler.schedule(world.clone(), &|i: &mut i32| {
+    system_scheduler.schedule(&|i: &mut i32| {
         println!("IN TASK 2");
         println!("ENDING TASK 2");
     });
 
-    system_scheduler.run();
+    let world = Arc::new(RwLock::new(world));
+    system_scheduler.run(world);
     ktasks::run_current_thread_tasks();
     std::thread::sleep(std::time::Duration::from_millis(30));
 }
@@ -306,23 +328,25 @@ fn exclusive_system() {
     let mut world = World::new();
     world.spawn((10 as i32,));
 
-    let world = Arc::new(RwLock::new(world));
     let mut system_scheduler = SystemScheduler::new();
-    system_scheduler.schedule(world.clone(), &|i: &i32| {
+    system_scheduler.schedule(&|i: &i32| {
         println!("IN TASK 0");
         println!("ENDING TASK 0");
     });
-    system_scheduler.schedule(world.clone(), &|world: ExclusiveWorld| {
+    system_scheduler.schedule(&|world: ExclusiveWorld| {
         println!("IN TASK 1");
         std::thread::sleep(std::time::Duration::from_millis(5));
         println!("ENDING TASK 1");
     });
-    system_scheduler.schedule(world.clone(), &|i: &i32| {
+
+    // This task should run last because the ExclusiveWorld system blocks it from running.
+    system_scheduler.schedule(&|i: &i32| {
         println!("IN TASK 2");
         println!("ENDING TASK 2");
     });
 
-    system_scheduler.run();
+    let world = Arc::new(RwLock::new(world));
+    system_scheduler.run(world);
     ktasks::run_current_thread_tasks();
     std::thread::sleep(std::time::Duration::from_millis(30));
 }

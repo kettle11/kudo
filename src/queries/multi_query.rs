@@ -51,6 +51,7 @@ pub struct ArchetypeBorrow<'a, T> {
 
 pub trait QueryParameter: for<'a> QueryParameterBorrow<'a> {
     fn type_id() -> TypeId;
+    fn write() -> bool;
 }
 
 pub trait QueryParameterBorrow<'a> {
@@ -61,6 +62,9 @@ pub trait QueryParameterBorrow<'a> {
 impl<T: 'static> QueryParameter for &T {
     fn type_id() -> TypeId {
         TypeId::of::<T>()
+    }
+    fn write() -> bool {
+        false
     }
 }
 
@@ -75,6 +79,9 @@ impl<T: 'static> QueryParameter for &mut T {
     fn type_id() -> TypeId {
         TypeId::of::<T>()
     }
+    fn write() -> bool {
+        true
+    }
 }
 
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
@@ -86,6 +93,7 @@ impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
 
 pub struct QueryInfo<const CHANNELS: usize> {
     archetypes: Vec<ArchetypeMatch<CHANNELS>>,
+    write: [bool; CHANNELS],
 }
 
 macro_rules! query_impl{
@@ -133,8 +141,18 @@ macro_rules! query_impl{
                     $(Filter{filter_type: FilterType::With, type_id: $name::type_id()}),*
                 ];
 
-                let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
-                Some(QueryInfo { archetypes })
+                let mut archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
+
+                // Look up resource index.
+                for archetype_match in &mut archetypes {
+                    let archetype = &world.archetypes[archetype_match.archetype_index];
+                    for (channel, resource_index) in archetype_match.channels.iter().zip(archetype_match.resource_indices.iter_mut()) {
+                        *resource_index = archetype.channels[*channel].channel_id;
+                    }
+                }
+
+                let write = [$($name::write(),)*];
+                Some(QueryInfo { archetypes, write})
             }
         }
 
@@ -155,8 +173,24 @@ query_impl! { 10, A, B, C, D, E, F, G, H, I, J}
 query_impl! { 11, A, B, C, D, E, F, G, H, I, J, K}
 
 impl<'a, const CHANNELS: usize> QueryInfoTrait for QueryInfo<CHANNELS> {
-    fn borrows(&self) -> &[WorldBorrow] {
-        todo!()
+    fn borrows(&self) -> ResourceBorrows {
+        let mut writes = Vec::new();
+        let mut reads = Vec::new();
+
+        for archetype_match in self.archetypes.iter() {
+            for (id, write) in archetype_match
+                .resource_indices
+                .iter()
+                .zip(self.write.iter())
+            {
+                if *write {
+                    writes.push(*id);
+                } else {
+                    reads.push(*id)
+                }
+            }
+        }
+        ResourceBorrows { writes, reads }
     }
 }
 

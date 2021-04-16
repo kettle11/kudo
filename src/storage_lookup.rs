@@ -33,6 +33,7 @@ pub struct Filter {
 pub struct ArchetypeMatch<const CHANNEL_COUNT: usize> {
     pub archetype_index: usize,
     pub channels: [usize; CHANNEL_COUNT],
+    pub resource_indices: [usize; CHANNEL_COUNT],
 }
 
 /*
@@ -185,6 +186,7 @@ impl StorageLookup {
         let mut archetype_match = ArchetypeMatch {
             archetype_index: 0,
             channels: [0; REQUIREMENT_COUNT],
+            resource_indices: [0; REQUIREMENT_COUNT],
         };
 
         let mut archetype_matches: Vec<ArchetypeMatch<REQUIREMENT_COUNT>> = Vec::new();

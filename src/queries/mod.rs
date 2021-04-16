@@ -15,23 +15,28 @@ pub enum ReadOrWrite {
     Write,
 }
 
-#[derive(Clone)]
-pub enum WorldBorrow {
-    Archetype {
-        archetype_index: usize,
-        channel_index: usize,
-        read_or_write: ReadOrWrite,
-    },
+pub struct ResourceBorrows {
+    pub(crate) writes: Vec<usize>,
+    pub(crate) reads: Vec<usize>,
+}
+
+impl ResourceBorrows {
+    pub(crate) fn new() -> Self {
+        Self {
+            reads: Vec::new(),
+            writes: Vec::new(),
+        }
+    }
+
+    pub(crate) fn extend(&mut self, resource_borrows: &ResourceBorrows) {
+        self.reads.extend_from_slice(&resource_borrows.reads);
+        self.writes.extend_from_slice(&resource_borrows.writes);
+    }
 }
 
 // To be used for recreating and later for scheduling the query.
 pub trait QueryInfoTrait {
-    fn borrows(&self) -> &[WorldBorrow];
-
-    /// If this trait requires exclusive access.
-    fn exclusive(&self) -> bool {
-        false
-    }
+    fn borrows(&self) -> ResourceBorrows;
 }
 
 pub trait GetQueryInfoTrait {
@@ -52,6 +57,11 @@ pub trait QueryTrait<'a>: GetQueryInfoTrait {
         query_info: &Self::QueryInfo,
     ) -> Option<Self::Result> {
         Self::get_query(world, query_info)
+    }
+
+    /// If this trait requires exclusive access.
+    fn exclusive() -> bool {
+        false
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::Entity;
 use std::any::{Any, TypeId};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
@@ -97,13 +98,16 @@ impl Archetype {
 pub(crate) struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
     pub(crate) component_channel: Box<dyn ComponentChannel>,
+    pub(crate) channel_id: usize,
 }
+static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 impl ComponentChannelStorage {
     pub fn new<T: 'static + Send + Sync>() -> Self {
         ComponentChannelStorage {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             type_id: TypeId::of::<T>(),
+            channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -111,6 +115,7 @@ impl ComponentChannelStorage {
         Self {
             type_id: self.type_id,
             component_channel: self.component_channel.new_same_type(),
+            channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
         }
     }
 }

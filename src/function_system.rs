@@ -1,4 +1,9 @@
-use crate::{AsSystemArg, GetQueryInfoTrait, QueryInfoTrait, QueryTrait, World, WorldBorrow};
+use crate::{AsSystemArg, GetQueryInfoTrait, QueryInfoTrait, QueryTrait, ResourceBorrows, World};
+
+pub struct SystemInfo {
+    pub borrows: ResourceBorrows,
+    pub exclusive: bool,
+}
 
 pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params>: Sized {
     type Thing;
@@ -16,6 +21,7 @@ pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params>: Sized {
         None
     }
 
+    fn exclusive(&self) -> bool;
     fn system_info(&self, world: &World) -> SystemInfo;
 }
 
@@ -48,17 +54,19 @@ where
         Some(self())
     }
 
+    fn exclusive(&self) -> bool {
+        false
+    }
+
     fn system_info(&self, _world: &World) -> SystemInfo {
         SystemInfo {
             exclusive: false,
-            borrows: Vec::new(),
+            borrows: ResourceBorrows {
+                reads: Vec::new(),
+                writes: Vec::new(),
+            },
         }
     }
-}
-
-pub struct SystemInfo {
-    pub borrows: Vec<WorldBorrow>,
-    pub exclusive: bool,
 }
 
 impl<'world_borrow, FUNC, R: 'world_borrow, A: QueryTrait<'world_borrow>>
@@ -91,11 +99,15 @@ where
     fn system_info(&self, world: &World) -> SystemInfo {
         let a = <A as GetQueryInfoTrait>::query_info(world).unwrap();
 
-        let exclusive = a.exclusive();
+        let exclusive = A::exclusive();
         SystemInfo {
             borrows: a.borrows().into(),
             exclusive,
         }
+    }
+
+    fn exclusive(&self) -> bool {
+        false
     }
 
     #[allow(non_snake_case)]
@@ -130,16 +142,19 @@ macro_rules! system_impl {
                 Some(self($($name.as_system_arg(),)*))
             }
 
+            fn exclusive(&self) -> bool {
+                false $(|| $name::exclusive())*
+            }
             // This could definitely be improved.
             // The borrows should not have to be requested again
             // to run later.
             #[allow(non_snake_case)]
             fn system_info(&self, world: &World) -> SystemInfo {
-                let mut borrows = Vec::new();
+                let mut borrows = ResourceBorrows::new();
                 $(let $name = <$name as GetQueryInfoTrait>::query_info(world).unwrap();)*
-                $(borrows.extend_from_slice($name.borrows());)*
+                $(borrows.extend(&$name.borrows());)*
 
-               let exclusive = false $(|| $name.exclusive())*;
+               let exclusive = false $(|| $name::exclusive())*;
                 SystemInfo {
                     borrows,
                     exclusive
