@@ -2,18 +2,22 @@
 // Is there a way to reduce it?
 
 use ktasks::*;
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
+use std::{collections::HashSet, sync::Mutex};
 
 struct Task {
     waiting_on: AtomicUsize,
     will_wait_on: usize,
-    task: Arc<Box<dyn Fn() + Send + Sync>>,
+    // This Mutex is probably not necessary because the scheduler
+    // *should* prevent contention but for now it's simplest / safest to
+    // just use a Mutex here to make task Sync.
+    task: Arc<Mutex<Box<dyn FnMut() + Send>>>,
     tasks_to_wake_up: Arc<Vec<usize>>,
     // I'm not fond of this inner RwLock.
     // Is there a way to not use it it?
     all_tasks: Arc<RwLock<Vec<Task>>>,
+    main_thread_task: bool,
 }
 
 impl Task {
@@ -21,14 +25,16 @@ impl Task {
         will_wait_on: usize,
         tasks_to_wake_up: Vec<usize>,
         all_tasks: Arc<RwLock<Vec<Task>>>,
-        task: Box<dyn Fn() + Send + Sync>,
+        task: Box<dyn FnMut() + Send>,
+        main_thread_task: bool,
     ) -> Self {
         Self {
             waiting_on: AtomicUsize::new(will_wait_on),
             tasks_to_wake_up: Arc::new(tasks_to_wake_up),
             will_wait_on,
-            task: Arc::new(task),
+            task: Arc::new(Mutex::new(task)),
             all_tasks,
+            main_thread_task,
         }
     }
 
@@ -46,14 +52,19 @@ impl Task {
             let all_tasks = self.all_tasks.clone();
             let tasks_to_wake_up = self.tasks_to_wake_up.clone();
 
-            spawn(async move {
-                task();
+            let inner_spawn = async move {
+                (task.lock().unwrap())();
                 let all_tasks = all_tasks.read().unwrap();
                 for task in tasks_to_wake_up.iter() {
                     all_tasks[*task].decrement_and_try_run();
                 }
-            })
-            .run();
+            };
+            
+            if self.main_thread_task {
+                spawn_main(inner_spawn).run();
+            } else {
+                spawn(inner_spawn).run();
+            }
         }
     }
 }
@@ -70,7 +81,8 @@ enum NextUp {
 struct TaskInfo {
     waiting_for: usize,
     tasks_to_wake_up: Vec<usize>,
-    task: Box<dyn Fn() + Send + Sync>,
+    task: Box<dyn FnMut() + Send>,
+    main_thread_task: bool,
 }
 
 struct Scheduler {
@@ -93,7 +105,8 @@ impl Scheduler {
         &mut self,
         reads: impl IntoIterator<Item = usize>,  //&[usize],
         writes: impl IntoIterator<Item = usize>, //&[usize],
-        task: Box<dyn Fn() + Send + Sync>,
+        task: Box<dyn FnMut() + Send>,
+        main_thread_task: bool,
     ) {
         // Only allow tasks with reads or writes
         //  assert!(reads.len() + writes.len() > 0);
@@ -169,6 +182,7 @@ impl Scheduler {
             waiting_for,
             tasks_to_wake_up: Vec::new(),
             task,
+            main_thread_task,
         })
     }
 
@@ -190,6 +204,7 @@ impl Scheduler {
                 task.tasks_to_wake_up,
                 all_tasks.clone(),
                 task.task,
+                task.main_thread_task,
             ))
         }
 
@@ -213,12 +228,13 @@ pub struct SystemScheduler {
 }
 
 enum SystemType {
-    Exclusive(Box<dyn Fn(&mut World) -> Option<()> + Send + Sync>),
-    NonExclusive(Box<dyn Fn(&World) -> Option<()> + Send + Sync>),
+    Exclusive(Box<dyn FnMut(&mut World) -> Option<()> + Send>),
+    NonExclusive(Box<dyn FnMut(&World) -> Option<()> + Send>),
 }
 struct SystemToBeScheduled {
-    get_borrows: Box<dyn FnMut(&World) -> ResourceBorrows>,
+    get_borrows: Box<dyn Fn(&World) -> ResourceBorrows>,
     run_system: SystemType,
+    main_thread_task: bool,
 }
 
 impl SystemScheduler {
@@ -229,9 +245,10 @@ impl SystemScheduler {
         }
     }
 
-    pub fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Sync + Send + 'static + Copy>(
+    fn schedule_inner<P, F: for<'a> FunctionSystem<'a, (), P> + Send + 'static + Copy>(
         &mut self,
         system: F,
+        main_thread_task: bool,
     ) {
         if system.exclusive() {
             let get_borrows = Box::new(move |world: &World| {
@@ -243,6 +260,7 @@ impl SystemScheduler {
             self.systems.push(SystemToBeScheduled {
                 get_borrows,
                 run_system: SystemType::Exclusive(run_system),
+                main_thread_task,
             })
         } else {
             let get_borrows = Box::new(move |world: &World| {
@@ -254,18 +272,32 @@ impl SystemScheduler {
             self.systems.push(SystemToBeScheduled {
                 get_borrows,
                 run_system: SystemType::NonExclusive(run_system),
+                main_thread_task,
             })
         }
+    }
+    pub fn schedule<P, F: for<'a> FunctionSystem<'a, (), P> + Send + 'static + Copy>(
+        &mut self,
+        system: F,
+    ) {
+        self.schedule_inner(system, false);
+    }
+
+    pub fn schedule_main_thread<P, F: for<'a> FunctionSystem<'a, (), P> + Send + 'static + Copy>(
+        &mut self,
+        system: F,
+    ) {
+        self.schedule_inner(system, true);
     }
 
     pub fn run(self, world: Arc<RwLock<World>>) {
         let world_ref = world.read().unwrap();
         let mut inner_scheduler = Scheduler::new();
-        for mut system in self.systems {
-            let borrows = (system.get_borrows)(&world_ref);
+        for system_to_be_scheudled in self.systems {
+            let borrows = (system_to_be_scheudled.get_borrows)(&world_ref);
 
-            match system.run_system {
-                SystemType::NonExclusive(system) => {
+            match system_to_be_scheudled.run_system {
+                SystemType::NonExclusive(mut system) => {
                     let world = world.clone();
                     inner_scheduler.add_task(
                         borrows.reads.iter().copied(),
@@ -274,9 +306,10 @@ impl SystemScheduler {
                             let world = world.read().unwrap();
                             (system)(&world);
                         }),
+                        system_to_be_scheudled.main_thread_task,
                     )
                 }
-                SystemType::Exclusive(system) => {
+                SystemType::Exclusive(mut system) => {
                     let world = world.clone();
                     inner_scheduler.add_task(
                         borrows.reads.iter().copied(),
@@ -285,6 +318,7 @@ impl SystemScheduler {
                             let mut world = world.write().unwrap();
                             (system)(&mut world);
                         }),
+                        system_to_be_scheudled.main_thread_task,
                     )
                 }
             }
