@@ -108,7 +108,7 @@ where
     }
 
     fn exclusive(&self) -> bool {
-        false
+        A::exclusive()
     }
 
     #[allow(non_snake_case)]
@@ -152,9 +152,7 @@ macro_rules! system_impl {
             #[allow(non_snake_case)]
             fn system_info(&self, world: &World) -> Result<SystemInfo, Error> {
                 let mut borrows = ResourceBorrows::new();
-                println!("HI0");
                 $(let $name = <$name as GetQueryInfoTrait>::query_info(world)?;)*
-                println!("HI1");
 
                 $(borrows.extend(&$name.borrows());)*
 

@@ -93,6 +93,8 @@ struct Scheduler {
     resources: Vec<NextUp>,
     /// Tasks that will run at the start of schedule cycle.
     starter_tasks: Vec<usize>,
+    last_exclusive_task: Option<usize>,
+    last_task: Option<usize>,
 }
 
 impl Scheduler {
@@ -101,6 +103,8 @@ impl Scheduler {
             task_info: Vec::new(),
             resources: Vec::new(),
             starter_tasks: Vec::new(),
+            last_exclusive_task: None,
+            last_task: None,
         }
     }
 
@@ -109,10 +113,11 @@ impl Scheduler {
         reads: impl IntoIterator<Item = usize>,  //&[usize],
         writes: impl IntoIterator<Item = usize>, //&[usize],
         task: Box<dyn FnMut() + Send>,
+        exclusive_task: bool,
         main_thread_task: bool,
     ) {
         // Only allow tasks with reads or writes
-        //  assert!(reads.len() + writes.len() > 0);
+        // assert!(reads.len() + writes.len() > 0);
 
         // Todo: Add a debug check that reads and writes don't overlap.
 
@@ -178,8 +183,33 @@ impl Scheduler {
         }
 
         if waiting_for == 0 {
-            self.starter_tasks.push(task_id);
+            if exclusive_task {
+                // If we're an exclusive task with no dependencies we need to run after whatever was the previous task.
+                if let Some(last_task) = self.last_task {
+                    self.task_info[last_task].tasks_to_wake_up.push(task_id);
+                    waiting_for += 1;
+                } else {
+                    self.starter_tasks.push(task_id);
+                }
+            } else if let Some(last_exclusive_task) = self.last_exclusive_task {
+                // If we're a non-exclusive task with no dependencies we need to wait
+                // on the last exclusive task.
+                self.task_info[last_exclusive_task]
+                    .tasks_to_wake_up
+                    .push(task_id);
+                waiting_for += 1;
+            } else {
+                self.starter_tasks.push(task_id);
+            }
         }
+
+        println!("WAITING FOR: {:?}", waiting_for);
+
+        if exclusive_task {
+            self.last_exclusive_task = Some(task_id);
+        }
+
+        self.last_task = Some(task_id);
 
         self.task_info.push(TaskInfo {
             waiting_for,
@@ -257,18 +287,37 @@ impl SystemScheduler {
         let location = Location::caller();
         let get_borrows = Box::new(move |world: &World| match system.system_info(world) {
             Err(e) => {
+                /*
                 println!("ERROR: {:?}", e);
                 panic!(
-                    "Error in system: {}:{:?}:{:?}",
+                    "Error getting borrows for system: {}:{:?}:{:?}",
                     location.file(),
                     location.line(),
                     location.column()
                 );
+                */
+
+                // If we failed to borrow from the world assume that we're dependent on nothing.
+                // This is a bad approach and instead getting our borrow information should be infallible.
+                // This is a patch because single borrows can currently fail when borrowing from the world.
+                ResourceBorrows {
+                    writes: Vec::new(),
+                    reads: Vec::new(),
+                }
             }
             Ok(system_info) => system_info.borrows,
         });
         if system.exclusive() {
+            println!("SCHEDULING EXCLUSIVE");
+
             let run_system = Box::new(move |world: &mut World| {
+                println!(
+                    "ABOUT TO RUN EXCLUSIVE:{}:{:?}:{:?}",
+                    location.file(),
+                    location.line(),
+                    location.column()
+                );
+
                 system.run_exclusive(world).unwrap_or_else(|e| {
                     println!("ERROR: {:?}", e);
                     panic!(
@@ -277,7 +326,8 @@ impl SystemScheduler {
                         location.line(),
                         location.column()
                     );
-                })
+                });
+                println!("RAN EXCLUSIVE");
             });
 
             self.systems.push(SystemToBeScheduled {
@@ -286,15 +336,26 @@ impl SystemScheduler {
                 main_thread_task,
             })
         } else {
+            println!("SCHEDULING NONEXCLUSIVE");
+
             let run_system = Box::new(move |world: &World| {
+                println!(
+                    "ABOUT TO RUN NONEXCLUSIVE:{}:{:?}:{:?}",
+                    location.file(),
+                    location.line(),
+                    location.column()
+                );
+
                 system.run(world).unwrap_or_else(|e| {
                     println!("ERROR: {:?}", e);
                     panic!(
-                        "Error caused by: {:?} {:?}",
+                        "Error in system: {}:{:?}:{:?}",
                         location.file(),
-                        location.line()
+                        location.line(),
+                        location.column()
                     );
                 });
+                println!("RAN NONEXCLUSIVE");
             });
 
             self.systems.push(SystemToBeScheduled {
@@ -326,10 +387,10 @@ impl SystemScheduler {
         let mut inner_scheduler = Scheduler::new();
 
         println!("SYSTEMS COUNT: {:?}", self.systems.len());
-        for system_to_be_scheudled in self.systems {
-            let borrows = (system_to_be_scheudled.get_borrows)(&world_ref);
+        for system_to_be_scheduled in self.systems {
+            let borrows = (system_to_be_scheduled.get_borrows)(&world_ref);
 
-            match system_to_be_scheudled.run_system {
+            match system_to_be_scheduled.run_system {
                 SystemType::NonExclusive(mut system) => {
                     let world = world.clone();
                     inner_scheduler.add_task(
@@ -339,7 +400,8 @@ impl SystemScheduler {
                             let world = world.read().unwrap();
                             (system)(&world);
                         }),
-                        system_to_be_scheudled.main_thread_task,
+                        false,
+                        system_to_be_scheduled.main_thread_task,
                     )
                 }
                 SystemType::Exclusive(mut system) => {
@@ -351,7 +413,8 @@ impl SystemScheduler {
                             let mut world = world.write().unwrap();
                             (system)(&mut world);
                         }),
-                        system_to_be_scheudled.main_thread_task,
+                        true,
+                        system_to_be_scheduled.main_thread_task,
                     )
                 }
             }
