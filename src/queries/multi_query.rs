@@ -46,6 +46,7 @@ pub struct ArchetypeBorrow<'a, T> {
     /// A tuple of individual components.
     component_borrows: T,
     entities: RwLockReadGuard<'a, Vec<Entity>>,
+    #[allow(unused)]
     archetype_index: usize,
 }
 

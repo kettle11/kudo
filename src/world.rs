@@ -1,9 +1,9 @@
 use std::any::TypeId;
 
 use crate::{
-    storage_lookup::StorageLookup, Archetype, AsSystemArg, ComponentBundle,
-    ComponentChannelStorage, Entities, Error, GetQueryDirect, GetQueryInfoTrait, InsertHandle,
-    Query, QueryParameters, QueryTrait, StorageGraph,
+    storage_lookup::StorageLookup, Archetype, ComponentBundle, ComponentChannelStorage, Entities,
+    Error, GetQueryDirect, GetQueryInfoTrait, InsertHandle, Query, QueryParameters, QueryTrait,
+    StorageGraph,
 };
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,

@@ -37,24 +37,10 @@ impl Requirement {
             original_index,
         }
     }
-    pub fn without(original_index: usize, type_id: TypeId) -> Self {
-        Self {
-            type_id,
-            requirement_type: RequirementType::Without,
-            original_index,
-        }
-    }
-    pub fn optional(original_index: usize, type_id: TypeId) -> Self {
-        Self {
-            type_id,
-            requirement_type: RequirementType::Optional,
-            original_index,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
-
+#[allow(unused)]
 pub enum RequirementType {
     With,
     Without,
@@ -255,6 +241,7 @@ pub struct InsertHandle<'a> {
     type_ids: &'a [TypeId],
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use std::any::TypeId;
@@ -335,3 +322,4 @@ mod tests {
         assert!(matching.contains(&1));
     }
 }
+*/
