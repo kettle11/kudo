@@ -76,7 +76,6 @@ impl Task {
 // Indices to Task
 enum NextUp {
     None,
-    // The previous write task blocked on
     Readers((Option<usize>, Vec<usize>)),
     Writer(usize),
 }
@@ -88,22 +87,20 @@ struct TaskInfo {
     main_thread_task: bool,
 }
 
-struct Scheduler {
+struct SubSchedule {
     task_info: Vec<TaskInfo>,
     resources: Vec<NextUp>,
     /// Tasks that will run at the start of schedule cycle.
     starter_tasks: Vec<usize>,
-    last_exclusive_task: Option<usize>,
     last_task: Option<usize>,
 }
 
-impl Scheduler {
+impl SubSchedule {
     pub fn new() -> Self {
         Self {
             task_info: Vec::new(),
             resources: Vec::new(),
             starter_tasks: Vec::new(),
-            last_exclusive_task: None,
             last_task: None,
         }
     }
@@ -191,23 +188,12 @@ impl Scheduler {
                 } else {
                     self.starter_tasks.push(task_id);
                 }
-            } else if let Some(last_exclusive_task) = self.last_exclusive_task {
-                // If we're a non-exclusive task with no dependencies we need to wait
-                // on the last exclusive task.
-                self.task_info[last_exclusive_task]
-                    .tasks_to_wake_up
-                    .push(task_id);
-                waiting_for += 1;
             } else {
                 self.starter_tasks.push(task_id);
             }
         }
 
         println!("WAITING FOR: {:?}", waiting_for);
-
-        if exclusive_task {
-            self.last_exclusive_task = Some(task_id);
-        }
 
         self.last_task = Some(task_id);
 
@@ -287,7 +273,6 @@ impl SystemScheduler {
         let location = Location::caller();
         let get_borrows = Box::new(move |world: &World| match system.system_info(world) {
             Err(e) => {
-                /*
                 println!("ERROR: {:?}", e);
                 panic!(
                     "Error getting borrows for system: {}:{:?}:{:?}",
@@ -295,8 +280,8 @@ impl SystemScheduler {
                     location.line(),
                     location.column()
                 );
-                */
 
+                /*
                 // If we failed to borrow from the world assume that we're dependent on nothing.
                 // This is a bad approach and instead getting our borrow information should be infallible.
                 // This is a patch because single borrows can currently fail when borrowing from the world.
@@ -304,6 +289,7 @@ impl SystemScheduler {
                     writes: Vec::new(),
                     reads: Vec::new(),
                 }
+                */
             }
             Ok(system_info) => system_info.borrows,
         });
@@ -384,7 +370,8 @@ impl SystemScheduler {
 
     pub fn run(self, world: Arc<RwLock<World>>) {
         let world_ref = world.read().unwrap();
-        let mut inner_scheduler = Scheduler::new();
+        let mut inner_scheduler = SubSchedule::new();
+
 
         println!("SYSTEMS COUNT: {:?}", self.systems.len());
         for system_to_be_scheduled in self.systems {
