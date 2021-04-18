@@ -37,7 +37,7 @@ impl<T> SparseSet<T> {
     }
 
     pub fn get(&self, entity_index: ENTITY_INDEX) -> Option<&T> {
-        Some(&self.data[self.indices[entity_index]?])
+        Some(&self.data[self.indices.get(entity_index)?.clone()?])
     }
 
     pub fn get_mut(&mut self, entity_index: ENTITY_INDEX) -> Option<&T> {

@@ -23,10 +23,10 @@ mod sparse_set;
 mod storage_lookup;
 use storage_lookup::*;
 
-#[cfg(feature = "scheduler")]
-mod scheduler;
-
-#[cfg(feature = "scheduler")]
-pub use scheduler::*;
-
-mod scheduler1;
+// #[cfg(feature = "scheduler")]
+// mod scheduler;
+//
+// #[cfg(feature = "scheduler")]
+// pub use scheduler::*;
+//
+// mod scheduler1;

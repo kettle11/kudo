@@ -17,13 +17,13 @@ pub struct ComponentInfo {
     pub archetypes: SparseSet<ComponentArchetypeInfo>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum FilterType {
     With,
     Without,
     Optional,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Filter {
     pub filter_type: FilterType,
     pub type_id: TypeId,
@@ -32,8 +32,10 @@ pub struct Filter {
 #[derive(Clone, Debug)]
 pub struct ArchetypeMatch<const CHANNEL_COUNT: usize> {
     pub archetype_index: usize,
-    pub channels: [usize; CHANNEL_COUNT],
-    pub resource_indices: [usize; CHANNEL_COUNT],
+    // A channel will be None if this archetype does not contain an optional channel.
+    pub channels: [Option<usize>; CHANNEL_COUNT],
+    // Used for scheduling
+    pub resource_indices: [Option<usize>; CHANNEL_COUNT],
 }
 
 /*
@@ -88,7 +90,8 @@ impl StorageLookup {
             filter: Filter,
         }
 
-        let mut inner_filters = Vec::with_capacity(REQUIREMENT_COUNT + filters.len());
+        let mut inner_filters: Vec<InnerFilter> =
+            Vec::with_capacity(REQUIREMENT_COUNT + filters.len());
 
         for (i, filter) in requirements.iter().enumerate() {
             let component_info = self.component_info.get(&filter.type_id);
@@ -164,19 +167,28 @@ impl StorageLookup {
                         if !matches.is_some() {
                             return false;
                         }
+                        if let Some(component_archetype_info) = matches {
+                            if let Some(requirement_index) = inner_filter.requirement_index {
+                                archetype_match.channels[requirement_index] =
+                                    Some(component_archetype_info.channel_in_archetype);
+                            }
+                        }
                     }
-                    FilterType::Optional => {}
+                    FilterType::Optional => {
+                        if let Some(component_archetype_info) = matches {
+                            if let Some(requirement_index) = inner_filter.requirement_index {
+                                archetype_match.channels[requirement_index] = if matches.is_some() {
+                                    Some(component_archetype_info.channel_in_archetype)
+                                } else {
+                                    None
+                                };
+                            }
+                        }
+                    }
                     FilterType::Without => {
                         if matches.is_some() {
                             return false;
                         }
-                    }
-                }
-
-                if let Some(component_archetype_info) = matches {
-                    if let Some(requirement_index) = inner_filter.requirement_index {
-                        archetype_match.channels[requirement_index] =
-                            component_archetype_info.channel_in_archetype;
                     }
                 }
             }
@@ -185,8 +197,8 @@ impl StorageLookup {
 
         let mut archetype_match = ArchetypeMatch {
             archetype_index: 0,
-            channels: [0; REQUIREMENT_COUNT],
-            resource_indices: [0; REQUIREMENT_COUNT],
+            channels: [None; REQUIREMENT_COUNT],
+            resource_indices: [None; REQUIREMENT_COUNT],
         };
 
         let mut archetype_matches: Vec<ArchetypeMatch<REQUIREMENT_COUNT>> = Vec::new();
@@ -203,10 +215,14 @@ impl StorageLookup {
                     .data()
                     .iter()
                 {
+                    // Reset the data so it's not used in multiple matches.
+                    archetype_match.channels = [None; REQUIREMENT_COUNT];
+                    archetype_match.resource_indices = [None; REQUIREMENT_COUNT];
+
                     archetype_match.archetype_index = component_archetype_info.archetype_index;
                     if let Some(requirement_index) = first_filter.requirement_index {
                         archetype_match.channels[requirement_index] =
-                            component_archetype_info.channel_in_archetype
+                            Some(component_archetype_info.channel_in_archetype)
                     }
 
                     if check_further_matches(

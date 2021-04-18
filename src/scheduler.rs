@@ -372,7 +372,6 @@ impl SystemScheduler {
         let world_ref = world.read().unwrap();
         let mut inner_scheduler = SubSchedule::new();
 
-
         println!("SYSTEMS COUNT: {:?}", self.systems.len());
         for system_to_be_scheduled in self.systems {
             let borrows = (system_to_be_scheduled.get_borrows)(&world_ref);

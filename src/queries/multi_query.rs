@@ -50,7 +50,7 @@ pub struct ArchetypeBorrow<'a, T> {
 }
 
 pub trait QueryParameter: for<'a> QueryParameterBorrow<'a> {
-    fn type_id() -> TypeId;
+    fn filter() -> Filter;
     fn write() -> bool;
 }
 
@@ -58,13 +58,16 @@ pub trait QueryParameterBorrow<'a> {
     type ParameterBorrow;
     fn borrow(
         archetype: &'a Archetype,
-        channel_index: usize,
+        channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error>;
 }
 
 impl<T: 'static> QueryParameter for &T {
-    fn type_id() -> TypeId {
-        TypeId::of::<T>()
+    fn filter() -> Filter {
+        Filter {
+            filter_type: FilterType::With,
+            type_id: TypeId::of::<T>(),
+        }
     }
     fn write() -> bool {
         false
@@ -75,15 +78,46 @@ impl<'a, T: 'static> QueryParameterBorrow<'a> for &T {
     type ParameterBorrow = RwLockReadGuard<'a, Vec<T>>;
     fn borrow(
         archetype: &'a Archetype,
-        channel_index: usize,
+        channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
-        archetype.borrow_channel(channel_index)
+        archetype.borrow_channel(channel_index.unwrap())
+    }
+}
+
+impl<Q: QueryParameter> QueryParameter for Option<Q> {
+    fn filter() -> Filter {
+        let inner_filter = Q::filter();
+        Filter {
+            filter_type: FilterType::Optional,
+            type_id: inner_filter.type_id,
+        }
+    }
+
+    fn write() -> bool {
+        Q::write()
+    }
+}
+
+impl<'a, Q: QueryParameterBorrow<'a>> QueryParameterBorrow<'a> for Option<Q> {
+    type ParameterBorrow = Option<Q::ParameterBorrow>;
+    fn borrow(
+        archetype: &'a Archetype,
+        channel_index: Option<usize>,
+    ) -> Result<Self::ParameterBorrow, Error> {
+        Ok(if let Some(channel_index) = channel_index {
+            Some(Q::borrow(archetype, Some(channel_index))?)
+        } else {
+            None
+        })
     }
 }
 
 impl<T: 'static> QueryParameter for &mut T {
-    fn type_id() -> TypeId {
-        TypeId::of::<T>()
+    fn filter() -> Filter {
+        Filter {
+            filter_type: FilterType::With,
+            type_id: TypeId::of::<T>(),
+        }
     }
     fn write() -> bool {
         true
@@ -94,9 +128,9 @@ impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
     type ParameterBorrow = RwLockWriteGuard<'a, Vec<T>>;
     fn borrow(
         archetype: &'a Archetype,
-        channel_index: usize,
+        channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
-        archetype.borrow_channel_mut(channel_index)
+        archetype.borrow_channel_mut(channel_index.unwrap())
     }
 }
 
@@ -147,7 +181,7 @@ macro_rules! query_impl{
             type QueryInfo = QueryInfo<$count>;
             fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
                 let type_ids: [Filter; $count] = [
-                    $(Filter{filter_type: FilterType::With, type_id: $name::type_id()}),*
+                    $($name::filter()),*
                 ];
 
                 let mut archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
@@ -156,7 +190,7 @@ macro_rules! query_impl{
                 for archetype_match in &mut archetypes {
                     let archetype = &world.archetypes[archetype_match.archetype_index];
                     for (channel, resource_index) in archetype_match.channels.iter().zip(archetype_match.resource_indices.iter_mut()) {
-                        *resource_index = archetype.channels[*channel].channel_id;
+                        *resource_index = channel.map(|channel| archetype.channels[channel].channel_id);
                     }
                 }
 
@@ -193,9 +227,13 @@ impl<'a, const CHANNELS: usize> QueryInfoTrait for QueryInfo<CHANNELS> {
                 .zip(self.write.iter())
             {
                 if *write {
-                    writes.push(*id);
+                    if let Some(id) = id {
+                        writes.push(*id);
+                    }
                 } else {
-                    reads.push(*id)
+                    if let Some(id) = id {
+                        reads.push(*id);
+                    }
                 }
             }
         }
@@ -262,6 +300,20 @@ impl<'a, 'world_borrow, T: 'static> GetIterator<'a> for RwLockWriteGuard<'world_
     type Iter = std::slice::Iter<'a, T>;
     fn get_iter(&'a self) -> Self::Iter {
         <[T]>::iter(self)
+    }
+}
+
+impl<'a, 'world_borrow, G: GetIterator<'a>> GetIterator<'a> for Option<G> {
+    type Iter = OptionIterator<G::Iter>;
+    fn get_iter(&'a self) -> Self::Iter {
+        OptionIterator::new(self.as_ref().map(|s| s.get_iter()))
+    }
+}
+
+impl<'a, 'world_borrow, G: GetIteratorMut<'a>> GetIteratorMut<'a> for Option<G> {
+    type Iter = OptionIterator<G::Iter>;
+    fn get_iter_mut(&'a mut self) -> Self::Iter {
+        OptionIterator::new(self.as_mut().map(|s| s.get_iter_mut()))
     }
 }
 
@@ -402,6 +454,21 @@ fn iterate_entities() {
         let entities: Vec<Entity> = i.entities().collect();
         assert!(entities[0].index() == 0);
         assert!(entities[1].index() == 1);
+    })
+    .run(&world)
+    .unwrap()
+}
+
+#[test]
+fn option_query() {
+    use crate::*;
+    let mut world = World::new();
+    world.spawn((3 as i32, true));
+    world.spawn((6 as i32, true));
+    world.spawn((false,));
+
+    (|values: Query<(Option<&i32>, &bool)>| {
+        assert!(values.iter().count() == 3);
     })
     .run(&world)
     .unwrap()
