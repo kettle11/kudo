@@ -31,3 +31,5 @@ use storage_lookup::*;
 
 pub trait ComponentTrait: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ComponentTrait for T {}
+
+mod tests;
