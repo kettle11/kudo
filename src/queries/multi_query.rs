@@ -1,11 +1,11 @@
 use super::*;
-use crate::ChainedIterator;
 use crate::{
     archetype::Archetype,
     iterators::*,
     storage_lookup::{Filter, FilterType},
     Entity,
 };
+use crate::{entities::Entities, ChainedIterator};
 use std::{
     any::TypeId,
     iter::Zip,
@@ -15,7 +15,56 @@ use std::{
 use crate::ArchetypeMatch;
 
 pub struct Query<'a, T: QueryParameters> {
+    entities: &'a Entities,
     archetype_borrows: Vec<ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>>,
+}
+
+impl<'a: 'b, 'b, T: QueryParameters> Query<'a, T>
+where
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
+{
+    pub fn get_component<A: 'static>(&'b self, entity: Entity) -> Option<&'b A> {
+        let entity = self.entities.get_location(entity)?;
+        let archetype = self
+            .archetype_borrows
+            .binary_search_by_key(&entity.archetype_index, |a| a.archetype_index)
+            .ok()?;
+
+        self.archetype_borrows[archetype]
+            .component_borrows
+            .get_component(entity.index_within_archetype)
+    }
+}
+
+#[test]
+fn get_component() {
+    use crate::*;
+    let mut world = World::new();
+    let entity = world.spawn((10 as f32,));
+    {
+        let query = world.query0::<Query<(&f32,)>>().unwrap();
+        let v = query.get_component::<f32>(entity).unwrap();
+        println!("V: {:?}", v);
+    }
+}
+
+pub trait GetComponent {
+    fn get_component<T: 'static>(&self, index: usize) -> Option<&T>;
+}
+
+impl<T: 'static> GetComponent for RwLockReadGuard<'_, Vec<T>> {
+    fn get_component<A: 'static>(&self, index: usize) -> Option<&A> {
+        use std::any::Any;
+        let s = (self as &Vec<T> as &dyn Any).downcast_ref::<Vec<A>>()?;
+        s.get(index)
+    }
+}
+
+// TODO: This needs to be implemented for more tuples in a macro
+impl<'a, A: GetComponent> GetComponent for (A,) {
+    fn get_component<T: 'static>(&self, index: usize) -> Option<&T> {
+        self.0.get_component(index)
+    }
 }
 
 impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T>
@@ -169,7 +218,7 @@ macro_rules! query_impl{
                         entities: archetype.entities.read().unwrap(),
                     })
                 }
-                Ok(Some(Query { archetype_borrows }))
+                Ok(Some(Query { entities: &world.entities, archetype_borrows }))
             }
         }
 
@@ -186,6 +235,10 @@ macro_rules! query_impl{
                 ];
 
                 let mut archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
+
+                // Sort archetypes so that we can later binary search the archetypes when
+                // finding entities.
+                archetypes.sort_by_key(|a| a.archetype_index);
 
                 // Look up resource index.
                 for archetype_match in &mut archetypes {

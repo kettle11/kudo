@@ -243,7 +243,7 @@ impl World {
         )
     }
 
-    pub fn query<'world_borrow, T: QueryParameters + 'world_borrow>(
+    pub fn query<'world_borrow, T: QueryParameters>(
         &'world_borrow self,
     ) -> Result<
         <<Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result as GetQueryDirect>::Arg,
