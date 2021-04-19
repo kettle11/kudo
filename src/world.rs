@@ -1,10 +1,7 @@
 use std::any::TypeId;
 
-use crate::{
-    storage_lookup::StorageLookup, Archetype, ComponentBundle, ComponentChannelStorage, Entities,
-    Error, GetQueryDirect, GetQueryInfoTrait, InsertHandle, Query, QueryParameters, QueryTrait,
-    StorageGraph,
-};
+use crate::*;
+
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_graph: StorageGraph,
@@ -151,11 +148,7 @@ impl World {
         )
     }
 
-    pub fn add_component<T: 'static + Send + Sync>(
-        &mut self,
-        entity: Entity,
-        component: T,
-    ) -> Option<()> {
+    pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
         let entity_location = self.entities.get_location(entity)?;
         let old_archetype_index = entity_location.archetype_index;
         let mut type_ids = self.archetypes[old_archetype_index].type_ids();

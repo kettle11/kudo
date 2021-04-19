@@ -30,3 +30,6 @@ use storage_lookup::*;
 // pub use scheduler::*;
 //
 // mod scheduler1;
+
+pub trait ComponentTrait: Send + Sync + 'static {}
+impl<T: Send + Sync + 'static> ComponentTrait for T {}

@@ -1,7 +1,7 @@
-use crate::{Archetype, ComponentChannelStorage, Entity, EntityLocation, World};
+use crate::{Archetype, ComponentChannelStorage, ComponentTrait, Entity, EntityLocation, World};
 use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
-pub trait ComponentBundle: Send + Sync + 'static {
+pub trait ComponentBundle: ComponentTrait {
     fn spawn_in_world(self, world: &mut World) -> Entity;
 }
 
@@ -10,7 +10,7 @@ pub trait ComponentBundle: Send + Sync + 'static {
 // It then inserts the tuple members in order based on their TypeIds.
 macro_rules! component_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
-        impl< $($name: 'static + Send + Sync),*> ComponentBundle for ($($name,)*) {
+        impl< $($name: ComponentTrait),*> ComponentBundle for ($($name,)*) {
             fn spawn_in_world(self, world: &mut World) -> Entity {
                 let new_entity = world.entities.new_entity_handle();
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];

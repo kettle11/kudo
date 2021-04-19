@@ -1,4 +1,4 @@
-use crate::{Entity, Error};
+use crate::{ComponentTrait, Entity, Error};
 use std::any::{Any, TypeId};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
@@ -103,7 +103,7 @@ pub(crate) struct ComponentChannelStorage {
 static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 impl ComponentChannelStorage {
-    pub fn new<T: 'static + Send + Sync>() -> Self {
+    pub fn new<T: ComponentTrait>() -> Self {
         ComponentChannelStorage {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             type_id: TypeId::of::<T>(),
@@ -120,7 +120,7 @@ impl ComponentChannelStorage {
     }
 }
 
-pub trait ComponentChannel: Send + Sync {
+pub trait ComponentChannel: ComponentTrait {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
     fn new_same_type(&self) -> Box<dyn ComponentChannel>;
@@ -129,7 +129,7 @@ pub trait ComponentChannel: Send + Sync {
     fn print_type(&self);
 }
 
-impl<T: 'static + Send + Sync> ComponentChannel for RwLock<Vec<T>> {
+impl<T: ComponentTrait> ComponentChannel for RwLock<Vec<T>> {
     fn to_any(&self) -> &dyn Any {
         self
     }
