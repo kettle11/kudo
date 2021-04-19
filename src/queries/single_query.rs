@@ -136,27 +136,3 @@ impl<'a, T: AsSystemArg<'a>> AsSystemArg<'a> for Option<T> {
         self.as_mut().map(|t| t.as_system_arg())
     }
 }
-/*
-
-#[test]
-fn mutable_query() {
-    use crate::*;
-
-    let mut world = World::new();
-    world.spawn((2 as i32,));
-
-    (|q: &mut i32| {
-        *q += 1;
-    })
-    .run(&world);
-    (|q: &i32| assert!(*q == 3)).run(&world);
-}
-
-#[test]
-fn option_query() {
-    use crate::*;
-
-    let world = World::new();
-    (|_: Option<&i32>| {}).run(&world);
-}
-*/

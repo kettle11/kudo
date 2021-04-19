@@ -143,3 +143,80 @@ fn remove_component0() {
     let entity = world.spawn((1 as i32, true));
     assert!(world.remove_component::<bool>(entity) == Some(true));
 }
+
+#[test]
+fn iterate_entities() {
+    use crate::*;
+    let mut world = World::new();
+    world.spawn((3 as i32,));
+    world.spawn((4 as i32,));
+
+    (|i: Query<(&i32,)>| {
+        let entities: Vec<Entity> = i.entities().collect();
+        assert!(entities[0].index() == 0);
+        assert!(entities[1].index() == 1);
+    })
+    .run(&world)
+    .unwrap()
+}
+
+#[test]
+fn option_query() {
+    use crate::*;
+    let mut world = World::new();
+    world.spawn((3 as i32, true));
+    world.spawn((6 as i32, true));
+    world.spawn((false,));
+
+    (|values: Query<(Option<&i32>, &bool)>| {
+        assert!(values.iter().count() == 3);
+    })
+    .run(&world)
+    .unwrap()
+}
+
+#[test]
+fn sum() {
+    use crate::*;
+
+    struct Position([f32; 3]);
+    struct Velocity([f32; 3]);
+    struct Rotation([f32; 3]);
+
+    let mut world = World::new();
+
+    for _ in 0..10 {
+        world.spawn((
+            Position([1., 0., 0.]),
+            Rotation([1., 0., 0.]),
+            Velocity([1., 0., 0.]),
+        ));
+    }
+
+    let mut query = world
+        .query::<(&Velocity, &mut Position, &Rotation)>()
+        .unwrap();
+    for (velocity, position, _rotation) in query.iter_mut() {
+        position.0[0] += velocity.0[0];
+        position.0[1] += velocity.0[1];
+        position.0[2] += velocity.0[2];
+    }
+
+    for (_velocity, position, _rotation) in query.iter_mut() {
+        assert!(position.0 == [2., 0., 0.]);
+    }
+}
+
+#[test]
+fn mutable_query() {
+    use crate::*;
+
+    let mut world = World::new();
+    world.spawn((2 as i32,));
+
+    (|q: &mut i32| {
+        *q += 1;
+    })
+    .run(&world)
+    .unwrap();
+}
