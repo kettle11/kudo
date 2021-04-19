@@ -41,7 +41,6 @@ fn get_query_info<T: 'static>(world: &World, write: bool) -> Result<SingleQueryI
     // This allocation could probably be avoided in the future.
     let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
 
-    println!("MATCHES: {:?}", archetypes);
     let (archetype_index, channel_index, resource_index) = archetypes.iter().next().map_or_else(
         || Err(Error::MissingComponent(std::any::type_name::<T>())),
         |a| {
