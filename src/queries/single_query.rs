@@ -4,7 +4,7 @@
 //! a system with that argument tries to run
 
 use super::*;
-use crate::Requirement;
+use crate::storage_lookup::{Filter, FilterType};
 use std::{
     any::TypeId,
     sync::{RwLockReadGuard, RwLockWriteGuard},
@@ -34,22 +34,25 @@ impl<'a> QueryInfoTrait for SingleQueryInfo {
 }
 
 fn get_query_info<T: 'static>(world: &World, write: bool) -> Result<SingleQueryInfo, Error> {
-    let type_ids = [Requirement::with_(0, TypeId::of::<T>())];
-    let mut archetype_channel_and_resource_index = None;
-    // Intentionally ignore error here because error is used to early out
-    world
-        .storage_graph
-        .iterate_matching_storage(&type_ids, |i, channels| -> Result<(), ()> {
-            archetype_channel_and_resource_index = Some((
-                i,
-                channels[0],
-                world.archetypes[i].channels[channels[0]].channel_id,
-            ));
-            Err(())
-        })
-        .ok();
-    let (archetype_index, channel_index, resource_index) = archetype_channel_and_resource_index
-        .ok_or_else(|| Error::MissingComponent(std::any::type_name::<T>()))?;
+    let type_ids = [Filter {
+        filter_type: FilterType::With,
+        type_id: TypeId::of::<T>(),
+    }];
+    // This allocation could probably be avoided in the future.
+    let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
+
+    println!("MATCHES: {:?}", archetypes);
+    let (archetype_index, channel_index, resource_index) = archetypes.iter().next().map_or_else(
+        || Err(Error::MissingComponent(std::any::type_name::<T>())),
+        |a| {
+            Ok((
+                a.archetype_index,
+                a.channels[0].unwrap(),
+                0, // a.resource_indices[0].unwrap(),
+                   // TODO: resource_indices aren't setup yet.
+            ))
+        },
+    )?;
 
     Ok(SingleQueryInfo {
         archetype_index,

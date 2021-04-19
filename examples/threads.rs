@@ -14,7 +14,7 @@ fn main() {
 
     // Run a query on another thread.
     let thread = std::thread::spawn(move || {
-        let mut query = world_other_thread.query::<(&bool,)>().unwrap();         
+        let mut query = world_other_thread.query::<(&bool,)>().unwrap();
         for b in query.iter() {
             println!("Boolean: {:?}", b);
         }

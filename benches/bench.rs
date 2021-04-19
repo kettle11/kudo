@@ -15,7 +15,28 @@ fn iterate_100k(b: &mut Bencher) {
                 pos.0 += vel.0;
             }
         })
-        .run(&world);
+        .run(&world)
+        .unwrap();
+    })
+}
+
+fn add_remove(b: &mut Bencher) {
+    struct A(f32);
+    struct B(f32);
+
+    let mut world = World::new();
+    let mut entities = Vec::new();
+    for _ in 0..10_000 {
+        entities.push(world.spawn((A(0.0),)))
+    }
+    b.iter(|| {
+        for entity in &entities {
+            world.add_component(*entity, B(0.0)).unwrap();
+        }
+
+        for entity in &entities {
+            world.remove_component::<B>(*entity).unwrap();
+        }
     })
 }
 
@@ -50,5 +71,5 @@ pub fn fragmented_iter(b: &mut Bencher) {
     }
     */
 }
-benchmark_group!(benches, iterate_100k, fragmented_iter);
+benchmark_group!(benches, iterate_100k, fragmented_iter, add_remove);
 benchmark_main!(benches);

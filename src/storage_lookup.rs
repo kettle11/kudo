@@ -2,12 +2,6 @@ use std::{any::TypeId, collections::HashMap};
 
 use crate::sparse_set::*;
 
-// This operates under the assumptipn that Archetypes are never deallocated.
-pub struct StorageLookup {
-    archetype_count: usize,
-    component_info: HashMap<TypeId, ComponentInfo>,
-}
-
 pub struct ComponentArchetypeInfo {
     archetype_index: usize,
     channel_in_archetype: usize,
@@ -38,18 +32,20 @@ pub struct ArchetypeMatch<const CHANNEL_COUNT: usize> {
     pub resource_indices: [Option<usize>; CHANNEL_COUNT],
 }
 
-/*
-/// Which archetypes match this query
-pub struct MatchInfo<const CHANNEL_COUNT: usize> {
-    archetypes: Vec<ArchetypeMatch>
+// This operates under the assumptipn that Archetypes are never deallocated.
+pub struct StorageLookup {
+    archetype_count: usize,
+    component_info: HashMap<TypeId, ComponentInfo>,
+    /// Sorted TypeID is the key.
+    type_id_to_archetype: HashMap<Vec<TypeId>, usize>,
 }
-*/
 
 impl StorageLookup {
     pub fn new() -> Self {
         Self {
             archetype_count: 0,
             component_info: HashMap::new(),
+            type_id_to_archetype: HashMap::new(),
         }
     }
 
@@ -76,6 +72,13 @@ impl StorageLookup {
             );
             self.archetype_count += 1;
         }
+
+        self.type_id_to_archetype
+            .insert(type_ids.into(), archetype_index);
+    }
+
+    pub fn get_archetype_with_components(&self, type_ids: &[TypeId]) -> Option<usize> {
+        self.type_id_to_archetype.get(type_ids).cloned()
     }
 
     pub fn get_matching_archetypes<const REQUIREMENT_COUNT: usize>(
@@ -195,6 +198,7 @@ impl StorageLookup {
             true
         }
 
+        // TODO: resource_indices aren't filled out yet.
         let mut archetype_match = ArchetypeMatch {
             archetype_index: 0,
             channels: [None; REQUIREMENT_COUNT],
@@ -222,7 +226,7 @@ impl StorageLookup {
                     archetype_match.archetype_index = component_archetype_info.archetype_index;
                     if let Some(requirement_index) = first_filter.requirement_index {
                         archetype_match.channels[requirement_index] =
-                            Some(component_archetype_info.channel_in_archetype)
+                            Some(component_archetype_info.channel_in_archetype);
                     }
 
                     if check_further_matches(

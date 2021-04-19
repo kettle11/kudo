@@ -5,12 +5,10 @@ mod error;
 mod function_system;
 mod iterators;
 mod queries;
-mod storage_graph;
 mod world;
 
 use archetype::*;
 use entities::*;
-use storage_graph::*;
 
 pub use component_bundle::*;
 pub use error::*;

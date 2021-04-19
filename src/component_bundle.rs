@@ -24,15 +24,17 @@ macro_rules! component_bundle_impl {
                 let type_ids = [$(type_ids_and_order[$index].1), *];
 
                 // Find the archetype in the world
-                let archetype_index = match world.storage_graph.find_storage(&type_ids) {
-                    Ok(index) => index,
-                    Err(insert_handle) => {
-                        let mut archetype = Archetype::new();
+                let archetype_index = match world.storage_lookup.get_archetype_with_components(&type_ids) {
+                    Some(index) => index,
+                    None => {
+                        let mut new_archetype = Archetype::new();
                         // Insert each channel
-                        $(archetype.push_channel(ComponentChannelStorage::new::<$name>());)*
+                        $(new_archetype.push_channel(ComponentChannelStorage::new::<$name>());)*
                         // Sort the channels
-                        archetype.sort_channels();
-                        let new_archetype_index = world.insert_archetype(insert_handle, archetype);
+                        new_archetype.sort_channels();
+
+                        let new_archetype_index = world.archetypes.len();
+                        world.archetypes.push(new_archetype);
                         world.storage_lookup
                             .new_archetype(new_archetype_index, &type_ids);
                         new_archetype_index

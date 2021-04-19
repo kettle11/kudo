@@ -4,7 +4,6 @@ use crate::*;
 
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
-    pub(crate) storage_graph: StorageGraph,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
 }
@@ -32,7 +31,6 @@ impl World {
         Self {
             archetypes: Vec::new(),
             entities: Entities::new(),
-            storage_graph: StorageGraph::new(),
             storage_lookup: StorageLookup::new(),
         }
     }
@@ -56,6 +54,104 @@ impl World {
         Ok(())
     }
 
+    pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
+        let entity_location = self.entities.get_location(entity)?;
+        let old_archetype_index = entity_location.archetype_index;
+        let mut type_ids = self.archetypes[old_archetype_index].type_ids();
+        let new_component_id = TypeId::of::<T>();
+        let insert_position = match type_ids.binary_search(&new_component_id) {
+            Ok(_) => None?, // Entity already has this component
+            Err(position) => {
+                type_ids.insert(position, new_component_id);
+                position
+            }
+        };
+
+        // Find or create a new archetype for this entity.
+        let new_archetype_index = match self.storage_lookup.get_archetype_with_components(&type_ids)
+        {
+            Some(index) => index,
+            None => {
+                // Create a new archetype with one additional component.
+                let mut new_archetype = Archetype::new();
+                let mut i = 0;
+                for c in self.archetypes[old_archetype_index].channels.iter() {
+                    if i == insert_position {
+                        new_archetype.push_channel(ComponentChannelStorage::new::<T>());
+                    }
+                    new_archetype.push_channel(c.new_same_type());
+                    i += 1;
+                }
+
+                if i == insert_position {
+                    new_archetype.push_channel(ComponentChannelStorage::new::<T>());
+                }
+
+                let new_archetype_index = self.archetypes.len();
+                self.archetypes.push(new_archetype);
+                self.storage_lookup
+                    .new_archetype(new_archetype_index, &type_ids);
+
+                new_archetype_index
+            }
+        };
+
+        let (old_archetype, new_archetype) = index_mut_twice(
+            &mut self.archetypes,
+            old_archetype_index,
+            new_archetype_index,
+        );
+
+        // Insert the new component
+        new_archetype
+            .get_channel_mut(insert_position)
+            .push(component);
+
+        // Migrate components from old archetype
+        let mut new_channel_index = 0;
+        for c in old_archetype.channels.iter_mut() {
+            if new_channel_index == insert_position {
+                new_channel_index += 1;
+            }
+
+            c.component_channel.migrate_component(
+                entity_location.index_within_archetype,
+                &mut *new_archetype.channels[new_channel_index].component_channel,
+            )
+        }
+
+        // `migrate_component` uses `swap_remove` internally, so another Entity's location
+        // is swapped and need updating.
+        let swapped_entity_index = old_archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .last()
+            .unwrap()
+            .index;
+
+        {
+            // Update the location of the entity
+            let location = &mut self.entities.generation_and_location[entity.index].1;
+            location.archetype_index = new_archetype_index;
+            location.index_within_archetype = new_archetype.entities.get_mut().unwrap().len();
+
+            // Update the location of the swapped entity.
+            let swapped_entity_location =
+                &mut self.entities.generation_and_location[swapped_entity_index].1;
+            swapped_entity_location.index_within_archetype = entity_location.index_within_archetype;
+        }
+
+        old_archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .swap_remove(entity_location.index_within_archetype);
+        new_archetype.entities.get_mut().unwrap().push(entity);
+
+        Some(())
+    }
+
     pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
         let entity_location = self.entities.get_location(entity)?;
         let old_archetype_index = entity_location.archetype_index;
@@ -68,12 +164,10 @@ impl World {
         };
 
         type_ids.remove(remove_channel_index);
-        let new_archetype_index = match self.storage_graph.find_storage(&type_ids) {
-            Ok(index) => {
-                // Archetype already exists
-                index
-            }
-            Err(insert_handle) => {
+        let new_archetype_index = match self.storage_lookup.get_archetype_with_components(&type_ids)
+        {
+            Some(index) => index,
+            None => {
                 // Create a new archetype with one additional component.
                 let mut new_archetype = Archetype::new();
                 let mut i = 0;
@@ -85,7 +179,8 @@ impl World {
                     i += 1;
                 }
 
-                let new_archetype_index = self.insert_archetype(insert_handle, new_archetype);
+                let new_archetype_index = self.archetypes.len();
+                self.archetypes.push(new_archetype);
                 self.storage_lookup
                     .new_archetype(new_archetype_index, &type_ids);
                 new_archetype_index
@@ -148,116 +243,6 @@ impl World {
         )
     }
 
-    pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
-        let entity_location = self.entities.get_location(entity)?;
-        let old_archetype_index = entity_location.archetype_index;
-        let mut type_ids = self.archetypes[old_archetype_index].type_ids();
-        let new_component_id = TypeId::of::<T>();
-        let insert_position = match type_ids.binary_search(&new_component_id) {
-            Ok(_) => None?, // Entity already has this component
-            Err(position) => {
-                type_ids.insert(position, new_component_id);
-                position
-            }
-        };
-
-        // Find or create a new archetype for this entity.
-        let new_archetype_index = match self.storage_graph.find_storage(&type_ids) {
-            Ok(index) => {
-                // Archetype already exists
-                index
-            }
-            Err(insert_handle) => {
-                // Create a new archetype with one additional component.
-                let mut new_archetype = Archetype::new();
-                let mut i = 0;
-                for c in self.archetypes[old_archetype_index].channels.iter() {
-                    if i == insert_position {
-                        new_archetype.push_channel(ComponentChannelStorage::new::<T>());
-                    }
-                    new_archetype.push_channel(c.new_same_type());
-                    i += 1;
-                }
-
-                if i == insert_position {
-                    new_archetype.push_channel(ComponentChannelStorage::new::<T>());
-                }
-
-                let new_archetype_index = self.insert_archetype(insert_handle, new_archetype);
-                self.storage_lookup
-                    .new_archetype(new_archetype_index, &type_ids);
-                new_archetype_index
-            }
-        };
-
-        let (old_archetype, new_archetype) = index_mut_twice(
-            &mut self.archetypes,
-            old_archetype_index,
-            new_archetype_index,
-        );
-
-        // Insert the new component
-        new_archetype
-            .get_channel_mut(insert_position)
-            .push(component);
-
-        // Migrate components from old archetype
-        let mut new_channel_index = 0;
-        for c in old_archetype.channels.iter_mut() {
-            if new_channel_index == insert_position {
-                new_channel_index += 1;
-            }
-
-            c.component_channel.migrate_component(
-                entity_location.index_within_archetype,
-                &mut *new_archetype.channels[new_channel_index].component_channel,
-            )
-        }
-
-        // `migrate_component` uses `swap_remove` internally, so another Entity's location
-        // is swapped and need updating.
-        let swapped_entity_index = old_archetype
-            .entities
-            .get_mut()
-            .unwrap()
-            .last()
-            .unwrap()
-            .index;
-
-        {
-            // Update the location of the entity
-            let location = &mut self.entities.generation_and_location[entity.index].1;
-            location.archetype_index = new_archetype_index;
-            location.index_within_archetype = new_archetype.entities.get_mut().unwrap().len();
-
-            // Update the location of the swapped entity.
-            let swapped_entity_location =
-                &mut self.entities.generation_and_location[swapped_entity_index].1;
-            swapped_entity_location.index_within_archetype = entity_location.index_within_archetype;
-        }
-
-        old_archetype
-            .entities
-            .get_mut()
-            .unwrap()
-            .swap_remove(entity_location.index_within_archetype);
-        new_archetype.entities.get_mut().unwrap().push(entity);
-
-        Some(())
-    }
-
-    pub(crate) fn insert_archetype(
-        &mut self,
-        insert_handle: InsertHandle,
-        archetype: Archetype,
-    ) -> usize {
-        let archetype_index = self.archetypes.len();
-        self.archetypes.push(archetype);
-        self.storage_graph
-            .insert_storage(insert_handle, archetype_index);
-        archetype_index
-    }
-
     pub fn query<'world_borrow, T: QueryParameters + 'world_borrow>(
         &'world_borrow self,
     ) -> Result<
@@ -294,6 +279,17 @@ fn index_mut_twice<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, 
 }
 
 /*
+pub trait WorldTrait {
+    fn new() -> Self;
+    fn query<'world_borrow, T: QueryParameters + 'world_borrow>(
+        &'world_borrow self,
+    ) -> Result<
+        <<Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result as GetQueryDirect>::Arg,
+        Error,
+    >;
+}
+*/
+
 #[test]
 fn simple_spawn() {
     use crate::*;
@@ -342,4 +338,3 @@ fn remove_component0() {
     let entity = world.spawn((1 as i32, true));
     assert!(world.remove_component::<bool>(entity) == Some(true));
 }
-*/

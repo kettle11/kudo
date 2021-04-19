@@ -120,7 +120,7 @@ impl ComponentChannelStorage {
     }
 }
 
-pub trait ComponentChannel: ComponentTrait {
+pub trait ComponentChannel: Send + Sync {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
     fn new_same_type(&self) -> Box<dyn ComponentChannel>;
