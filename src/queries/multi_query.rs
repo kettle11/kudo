@@ -5,6 +5,8 @@ use crate::{
     storage_lookup::{Filter, FilterType},
     Entity,
 };
+use std::any::Any;
+
 use crate::{entities::Entities, ChainedIterator};
 use std::{
     any::TypeId,
@@ -17,54 +19,6 @@ use crate::ArchetypeMatch;
 pub struct Query<'a, T: QueryParameters> {
     entities: &'a Entities,
     archetype_borrows: Vec<ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>>,
-}
-
-impl<'a: 'b, 'b, T: QueryParameters> Query<'a, T>
-where
-    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
-{
-    pub fn get_component<A: 'static>(&'b self, entity: Entity) -> Option<&'b A> {
-        let entity = self.entities.get_location(entity)?;
-        let archetype = self
-            .archetype_borrows
-            .binary_search_by_key(&entity.archetype_index, |a| a.archetype_index)
-            .ok()?;
-
-        self.archetype_borrows[archetype]
-            .component_borrows
-            .get_component(entity.index_within_archetype)
-    }
-}
-
-#[test]
-fn get_component() {
-    use crate::*;
-    let mut world = World::new();
-    let entity = world.spawn((10 as f32,));
-    {
-        let query = world.query0::<Query<(&f32,)>>().unwrap();
-        let v = query.get_component::<f32>(entity).unwrap();
-        println!("V: {:?}", v);
-    }
-}
-
-pub trait GetComponent {
-    fn get_component<T: 'static>(&self, index: usize) -> Option<&T>;
-}
-
-impl<T: 'static> GetComponent for RwLockReadGuard<'_, Vec<T>> {
-    fn get_component<A: 'static>(&self, index: usize) -> Option<&A> {
-        use std::any::Any;
-        let s = (self as &Vec<T> as &dyn Any).downcast_ref::<Vec<A>>()?;
-        s.get(index)
-    }
-}
-
-// TODO: This needs to be implemented for more tuples in a macro
-impl<'a, A: GetComponent> GetComponent for (A,) {
-    fn get_component<T: 'static>(&self, index: usize) -> Option<&T> {
-        self.0.get_component(index)
-    }
 }
 
 impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T>
@@ -253,6 +207,24 @@ macro_rules! query_impl{
             }
         }
 
+
+        impl<'a, $($name: GetComponent), *> GetComponent for ($($name,)*) {
+            #[allow(unused, non_snake_case)]
+            fn get_component<T: 'static>(&self, index: usize) -> Option<&T> {
+                let ($($name,)*) = self;
+                $(if let Some(v) = $name.get_component(index) { return Some(v); })*
+                None
+            }
+        }
+
+        impl<'a, $($name: GetComponentMut), *> GetComponentMut for ($($name,)*) {
+            #[allow(unused, non_snake_case)]
+            fn get_component_mut<T: 'static>(&mut self, index: usize) -> Option<&mut T> {
+                let ($($name,)*) = self;
+                $(if let Some(v) = $name.get_component_mut(index) { return Some(v); })*
+                None
+            }
+        }
     }
 }
 
@@ -496,3 +468,73 @@ iterator! {Zip10, A, B, C, D, E, F, G, H, I, J}
 iterator! {Zip11, A, B, C, D, E, F, G, H, I, J, K}
 
 // --------- END ITERATOR STUFF ---------------
+
+// ----------GET COMPONENT  -----------
+impl<'a, T: QueryParameters> Query<'a, T>
+where
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
+{
+    pub fn get_component<A: 'static>(&self, entity: Entity) -> Option<&A> {
+        let entity = self.entities.get_location(entity)?;
+        let archetype = self
+            .archetype_borrows
+            .binary_search_by_key(&entity.archetype_index, |a| a.archetype_index)
+            .ok()?;
+
+        self.archetype_borrows[archetype]
+            .component_borrows
+            .get_component(entity.index_within_archetype)
+    }
+}
+impl<'a, T: QueryParameters> Query<'a, T>
+where
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponentMut,
+{
+    pub fn get_component_mut<A: 'static>(&mut self, entity: Entity) -> Option<&mut A> {
+        let entity = self.entities.get_location(entity)?;
+        let archetype = self
+            .archetype_borrows
+            .binary_search_by_key(&entity.archetype_index, |a| a.archetype_index)
+            .ok()?;
+
+        self.archetype_borrows[archetype]
+            .component_borrows
+            .get_component_mut(entity.index_within_archetype)
+    }
+}
+
+pub trait GetComponent {
+    fn get_component<T: 'static>(&self, index: usize) -> Option<&T>;
+}
+
+pub trait GetComponentMut {
+    fn get_component_mut<T: 'static>(&mut self, index: usize) -> Option<&mut T>;
+}
+
+impl<T: 'static> GetComponent for RwLockReadGuard<'_, Vec<T>> {
+    fn get_component<A: 'static>(&self, index: usize) -> Option<&A> {
+        let s = (self as &Vec<T> as &dyn Any).downcast_ref::<Vec<A>>()?;
+        s.get(index)
+    }
+}
+
+impl<T: 'static> GetComponent for RwLockWriteGuard<'_, Vec<T>> {
+    fn get_component<A: 'static>(&self, index: usize) -> Option<&A> {
+        let s = (self as &Vec<T> as &dyn Any).downcast_ref::<Vec<A>>()?;
+        s.get(index)
+    }
+}
+
+impl<T: 'static> GetComponentMut for RwLockWriteGuard<'_, Vec<T>> {
+    fn get_component_mut<A: 'static>(&mut self, index: usize) -> Option<&mut A> {
+        let s = (self as &mut Vec<T> as &mut dyn Any).downcast_mut::<Vec<A>>()?;
+        s.get_mut(index)
+    }
+}
+
+impl<T: 'static> GetComponentMut for RwLockReadGuard<'_, Vec<T>> {
+    fn get_component_mut<A: 'static>(&mut self, _index: usize) -> Option<&mut A> {
+        // Perhaps this should be a more specific error if the type is within this but not mutable.
+        None
+    }
+}
