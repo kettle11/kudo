@@ -95,12 +95,6 @@ impl<'a, T: 'static> QueryTrait<'a> for &mut T {
     }
 }
 
-pub trait SingleTrait<'world_borrow>: QueryTrait<'world_borrow> {}
-
-impl<'world_borrow, T: 'static> SingleTrait<'world_borrow> for &T {}
-
-impl<'world_borrow, T: 'static> SingleTrait<'world_borrow> for &mut T {}
-
 impl<'a, T: 'static> AsSystemArg<'a> for RwLockReadGuard<'_, Vec<T>> {
     type Arg = &'a T;
     fn as_system_arg(&'a mut self) -> Self::Arg {

@@ -222,15 +222,6 @@ fn mutable_query() {
 }
 
 #[test]
-fn get_component() {
-    use crate::*;
-    let mut world = World::new();
-    let entity = world.spawn((10 as f32, true));
-
-    let query = world.query::<(&f32, &bool)>().unwrap();
-}
-
-#[test]
 fn get_component_mut() {
     use crate::*;
     let mut world = World::new();
@@ -249,4 +240,13 @@ fn get_component_fail() {
     let entity = world.spawn((10 as f32,));
     let query = world.query::<(&f32,)>().unwrap();
     assert!(query.get_component::<bool>(entity).is_none());
+}
+
+#[test]
+fn one_query() {
+    use crate::*;
+    let mut world = World::new();
+    let entity = world.spawn((10 as f32,));
+
+    (|q: One<(&mut f32,)>| {}).run(&world).unwrap();
 }

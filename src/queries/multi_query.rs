@@ -5,6 +5,8 @@ use crate::{
     storage_lookup::{Filter, FilterType},
     Entity,
 };
+use std::ops::Deref;
+
 use std::any::Any;
 
 use crate::{entities::Entities, ChainedIterator};
@@ -19,6 +21,19 @@ use crate::ArchetypeMatch;
 pub struct Query<'a, T: QueryParameters> {
     entities: &'a Entities,
     archetype_borrows: Vec<ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>>,
+}
+
+pub struct One<'a, T: QueryParameters> {
+    entities: &'a Entities,
+    archetype_borrow: ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>,
+}
+
+impl<'a, T: QueryParameters> Deref for One<'a, T> {
+    type Target = f32;
+
+    fn deref(&self) -> &Self::Target {
+        todo!()
+    }
 }
 
 impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T>
@@ -176,11 +191,9 @@ macro_rules! query_impl{
             }
         }
 
-
         // It almost seems like there might be a way to make this more generic.
         // I think these implementations could be made totally generic by making QueryParameters
         // implement a way to get all type ids.
-
         impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for Query<'a, ($($name,)*)> {
             type QueryInfo = QueryInfo<$count>;
             fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
@@ -200,6 +213,47 @@ macro_rules! query_impl{
                     for (channel, resource_index) in archetype_match.channels.iter().zip(archetype_match.resource_indices.iter_mut()) {
                         *resource_index = channel.map(|channel| archetype.channels[channel].channel_id);
                     }
+                }
+
+                let write = [$($name::write(),)*];
+                Ok(QueryInfo { archetypes, write})
+            }
+        }
+
+
+        impl<'a, $($name: QueryParameter),*> QueryTrait<'a> for One<'_, ($($name,)*)> {
+            type Result = Option<One<'a, ($($name,)*)>>;
+
+            #[allow(non_snake_case)]
+            fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+                let archetype_info = &query_info.archetypes[0];
+                let archetype = &world.archetypes[archetype_info.archetype_index];
+                let [$($name,)*] = archetype_info.channels;
+
+                let archetype_borrow = ArchetypeBorrow {
+                    component_borrows: (
+                        $(<$name as QueryParameterBorrow<'a>>::borrow(archetype, $name)?,)*
+                    ),
+                    archetype_index: archetype_info.archetype_index,
+                    entities: archetype.entities.read().unwrap(),
+                };
+
+                Ok(Some(One { entities: &world.entities, archetype_borrow }))
+            }
+        }
+
+
+        impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for One<'a, ($($name,)*)> {
+            type QueryInfo = QueryInfo<$count>;
+            fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
+                let type_ids: [Filter; $count] = [
+                    $($name::filter()),*
+                ];
+
+                let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
+
+                if archetypes.is_empty() {
+                    Err(Error::NoMatchingEntities)?
                 }
 
                 let write = [$($name::write(),)*];
@@ -269,6 +323,13 @@ impl<'a, const CHANNELS: usize> QueryInfoTrait for QueryInfo<CHANNELS> {
 
 impl<'a, 'b, Q: QueryParameters> AsSystemArg<'b> for Option<Query<'a, Q>> {
     type Arg = Query<'a, Q>;
+    fn as_system_arg(&'b mut self) -> Self::Arg {
+        self.take().unwrap()
+    }
+}
+
+impl<'a, 'b, Q: QueryParameters> AsSystemArg<'b> for Option<One<'a, Q>> {
+    type Arg = One<'a, Q>;
     fn as_system_arg(&'b mut self) -> Self::Arg {
         self.take().unwrap()
     }
@@ -345,17 +406,18 @@ impl<'a, 'world_borrow, G: GetIteratorMut<'a>> GetIteratorMut<'a> for Option<G> 
 
 impl<'a, 'b, T: QueryParameters> IntoIterator for &'b Query<'a, T>
 where
-    &'b ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>: IntoIterator,
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetIterator<'b>,
 {
     type Item = <Self::IntoIter as Iterator>::Item;
-    type IntoIter =
-        ChainedIterator<<&'b ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows> as IntoIterator>::IntoIter>;
+    type IntoIter = ChainedIterator<
+        <<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetIterator<'b>>::Iter,
+    >;
 
     fn into_iter(self) -> Self::IntoIter {
         ChainedIterator::new(
             self.archetype_borrows
                 .iter()
-                .map(|i| i.into_iter())
+                .map(|i| i.component_borrows.get_iter())
                 .collect(),
         )
     }
@@ -363,18 +425,18 @@ where
 
 impl<'a, 'b, T: QueryParameters> IntoIterator for &'b mut Query<'a, T>
 where
-    &'b mut ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows>: IntoIterator,
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetIteratorMut<'b>,
 {
     type Item = <Self::IntoIter as Iterator>::Item;
     type IntoIter = ChainedIterator<
-        <&'b mut ArchetypeBorrow<'a, <T as QueryParametersBorrow<'a>>::ComponentBorrows> as IntoIterator>::IntoIter,
+        <<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetIteratorMut<'b>>::Iter,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
         ChainedIterator::new(
             self.archetype_borrows
                 .iter_mut()
-                .map(|i| i.into_iter())
+                .map(|i| i.component_borrows.get_iter_mut())
                 .collect(),
         )
     }
@@ -399,58 +461,52 @@ impl<'b, A: GetIterator<'b>> IntoIterator for &'b ArchetypeBorrow<'_, (A,)> {
     }
 }
 
-impl<'b, A: GetIteratorMut<'b>> IntoIterator for &'b mut ArchetypeBorrow<'_, (A,)> {
-    type Item = <Self::IntoIter as Iterator>::Item;
-    type IntoIter = A::Iter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.component_borrows.0.get_iter_mut()
+impl<'b, A: GetIterator<'b>> GetIterator<'b> for (A,) {
+    type Iter = A::Iter;
+    fn get_iter(&'b self) -> Self::Iter {
+        self.0.get_iter()
     }
 }
 
-impl<'b, A: GetIterator<'b>, B: GetIterator<'b>> IntoIterator for &'b ArchetypeBorrow<'_, (A, B)> {
-    type Item = <Self::IntoIter as Iterator>::Item;
-    type IntoIter = Zip<A::Iter, B::Iter>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.component_borrows
-            .0
-            .get_iter()
-            .zip(self.component_borrows.1.get_iter())
+impl<'b, A: GetIterator<'b>, B: GetIterator<'b>> GetIterator<'b> for (A, B) {
+    type Iter = Zip<A::Iter, B::Iter>;
+    fn get_iter(&'b self) -> Self::Iter {
+        self.0.get_iter().zip(self.1.get_iter())
     }
 }
 
-impl<'b, A: GetIteratorMut<'b>, B: GetIteratorMut<'b>> IntoIterator
-    for &'b mut ArchetypeBorrow<'_, (A, B)>
-{
-    type Item = <Self::IntoIter as Iterator>::Item;
-    type IntoIter = Zip<A::Iter, B::Iter>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.component_borrows
-            .0
-            .get_iter_mut()
-            .zip(self.component_borrows.1.get_iter_mut())
+impl<'b, A: GetIteratorMut<'b>> GetIteratorMut<'b> for (A,) {
+    type Iter = A::Iter;
+    fn get_iter_mut(&'b mut self) -> Self::Iter {
+        self.0.get_iter_mut()
+    }
+}
+
+impl<'b, A: GetIteratorMut<'b>, B: GetIteratorMut<'b>> GetIteratorMut<'b> for (A, B) {
+    type Iter = Zip<A::Iter, B::Iter>;
+    fn get_iter_mut(&'b mut self) -> Self::Iter {
+        self.0.get_iter_mut().zip(self.1.get_iter_mut())
     }
 }
 
 macro_rules! iterator{
     ($zip_type: ident, $($name: ident),*) => {
         #[allow(non_snake_case)]
-        impl<'b, $($name: GetIterator<'b>),*> IntoIterator for &'b ArchetypeBorrow<'_, ($($name,)*)>
+        impl<'b, $($name: GetIterator<'b>),*> GetIterator<'b> for ($($name,)*)
              {
-            type Item = <Self::IntoIter as Iterator>::Item;
-            type IntoIter = $zip_type<$($name::Iter,)*>;
-            fn into_iter(self) -> Self::IntoIter {
-                let ($($name,)*) = &self.component_borrows;
+            type Iter = $zip_type<$($name::Iter,)*>;
+            fn get_iter(&'b self) -> Self::Iter {
+                let ($($name,)*) = self;
                 $zip_type::new($($name.get_iter(),)*)
             }
         }
 
         #[allow(non_snake_case)]
-        impl<'b, $($name: GetIteratorMut<'b>),*> IntoIterator for &'b mut ArchetypeBorrow<'_, ($($name,)*)>
+        impl<'b, $($name: GetIteratorMut<'b>),*> GetIteratorMut<'b> for ($($name,)*)
              {
-            type Item = <Self::IntoIter as Iterator>::Item;
-            type IntoIter = $zip_type<$($name::Iter,)*>;
-            fn into_iter(self) -> Self::IntoIter {
-                let ($($name,)*) = &mut self.component_borrows;
+            type Iter = $zip_type<$($name::Iter,)*>;
+            fn get_iter_mut(&'b mut self) -> Self::Iter {
+                let ($($name,)*) = self;
                 $zip_type::new($($name.get_iter_mut(),)*)
             }
         }
@@ -469,7 +525,7 @@ iterator! {Zip11, A, B, C, D, E, F, G, H, I, J, K}
 
 // --------- END ITERATOR STUFF ---------------
 
-// ----------GET COMPONENT  -----------
+// ---------- GET COMPONENT -----------
 impl<'a, T: QueryParameters> Query<'a, T>
 where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
