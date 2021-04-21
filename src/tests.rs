@@ -241,12 +241,3 @@ fn get_component_fail() {
     let query = world.query::<(&f32,)>().unwrap();
     assert!(query.get_component::<bool>(entity).is_none());
 }
-
-#[test]
-fn one_query() {
-    use crate::*;
-    let mut world = World::new();
-    let entity = world.spawn((10 as f32,));
-
-    (|q: One<(&mut f32,)>| {}).run(&world).unwrap();
-}
