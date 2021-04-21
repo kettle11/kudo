@@ -95,26 +95,11 @@ impl<'a, T: 'static> QueryTrait<'a> for &mut T {
     }
 }
 
-pub trait Single<'world_borrow>: QueryTrait<'world_borrow> {}
+pub trait SingleTrait<'world_borrow>: QueryTrait<'world_borrow> {}
 
-impl<'world_borrow, T: 'static> Single<'world_borrow> for &T {}
+impl<'world_borrow, T: 'static> SingleTrait<'world_borrow> for &T {}
 
-// impl<'world_borrow, T: 'static> Single<'world_borrow> for &mut T {}
-
-/*
-impl<'world_borrow, S: Single<'world_borrow>> QueryTrait<'world_borrow> for Option<S> {
-    type Result = Option<<S as QueryTrait<'world_borrow>>::Result>;
-    type QueryInfo = ();
-
-    fn query(world: &'world_borrow World) -> Option<Self::Result> {
-        Some(<S as QueryTrait<'world_borrow>>::query(world))
-    }
-
-    fn query_info() -> Self::QueryInfo {
-        todo!()
-    }
-}
-*/
+impl<'world_borrow, T: 'static> SingleTrait<'world_borrow> for &mut T {}
 
 impl<'a, T: 'static> AsSystemArg<'a> for RwLockReadGuard<'_, Vec<T>> {
     type Arg = &'a T;
