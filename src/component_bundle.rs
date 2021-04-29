@@ -52,7 +52,8 @@ macro_rules! component_bundle_impl {
 
                 let index_within_archetype = archetype.entities.get_mut().unwrap().len();
                 archetype.entities.get_mut().unwrap().push(new_entity);
-                world.entities.set_entity_location(new_entity, EntityLocation {
+
+                *world.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
                     archetype_index,
                     index_within_archetype
                 });

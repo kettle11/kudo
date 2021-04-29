@@ -39,25 +39,35 @@ impl World {
         component_bundle.spawn_in_world(self)
     }
 
+    pub fn reserve_entity(&self) -> Entity {
+        self.entities.reserve_entity()
+    }
+
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
     pub fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
         let entity_location = self.entities.free_entity(entity)?;
-        let archetype = &mut self.archetypes[entity_location.archetype_index];
-        let swapped_entity = *archetype.entities.get_mut().unwrap().last().ok_or(())?;
-        archetype.swap_remove(entity_location.index_within_archetype);
+        if let Some(entity_location) = entity_location {
+            let archetype = &mut self.archetypes[entity_location.archetype_index];
+            let swapped_entity = *archetype.entities.get_mut().unwrap().last().ok_or(())?;
+            archetype.swap_remove(entity_location.index_within_archetype);
 
-        if swapped_entity != entity {
-            self.entities
-                .set_entity_location(swapped_entity, entity_location);
+            if swapped_entity != entity {
+                *self.entities.get_at_index_mut(swapped_entity.index) = Some(entity_location);
+            }
         }
         Ok(())
     }
 
     pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
-        let entity_location = self.entities.get_location(entity)?;
-        let old_archetype_index = entity_location.archetype_index;
-        let mut type_ids = self.archetypes[old_archetype_index].type_ids();
+        let old_entity_location = self.entities.get_location(entity)?;
+
+        let mut type_ids = if let Some(old_entity_location) = old_entity_location {
+            self.archetypes[old_entity_location.archetype_index].type_ids()
+        } else {
+            Vec::new()
+        };
+
         let new_component_id = TypeId::of::<T>();
         let insert_position = match type_ids.binary_search(&new_component_id) {
             Ok(_) => None?, // Entity already has this component
@@ -75,12 +85,18 @@ impl World {
                 // Create a new archetype with one additional component.
                 let mut new_archetype = Archetype::new();
                 let mut i = 0;
-                for c in self.archetypes[old_archetype_index].channels.iter() {
-                    if i == insert_position {
-                        new_archetype.push_channel(ComponentChannelStorage::new::<T>());
+
+                if let Some(old_entity_location) = old_entity_location {
+                    for c in self.archetypes[old_entity_location.archetype_index]
+                        .channels
+                        .iter()
+                    {
+                        if i == insert_position {
+                            new_archetype.push_channel(ComponentChannelStorage::new::<T>());
+                        }
+                        new_archetype.push_channel(c.new_same_type());
+                        i += 1;
                     }
-                    new_archetype.push_channel(c.new_same_type());
-                    i += 1;
                 }
 
                 if i == insert_position {
@@ -96,64 +112,70 @@ impl World {
             }
         };
 
-        let (old_archetype, new_archetype) = index_mut_twice(
-            &mut self.archetypes,
-            old_archetype_index,
-            new_archetype_index,
-        );
+        if let Some(old_entity_location) = old_entity_location {
+            let (old_archetype, new_archetype) = index_mut_twice(
+                &mut self.archetypes,
+                old_entity_location.archetype_index,
+                new_archetype_index,
+            );
+            // Migrate components from old archetype
+            let mut new_channel_index = 0;
+            for c in old_archetype.channels.iter_mut() {
+                if new_channel_index == insert_position {
+                    new_channel_index += 1;
+                }
 
+                c.component_channel.migrate_component(
+                    old_entity_location.index_within_archetype,
+                    &mut *new_archetype.channels[new_channel_index].component_channel,
+                )
+            }
+
+            // `migrate_component` uses `swap_remove` internally, so another Entity's location
+            // is swapped and need updating.
+            let swapped_entity_index = old_archetype
+                .entities
+                .get_mut()
+                .unwrap()
+                .last()
+                .unwrap()
+                .index;
+
+            {
+                // Update the location of the entity
+                let location = self.entities.get_at_index_mut(entity.index);
+                *location = Some(EntityLocation {
+                    archetype_index: new_archetype_index,
+                    index_within_archetype: new_archetype.entities.get_mut().unwrap().len(),
+                });
+
+                // Update the location of the swapped entity.
+                let swapped_entity_location =
+                    &mut self.entities.get_at_index_mut(swapped_entity_index);
+                swapped_entity_location.unwrap().index_within_archetype =
+                    old_entity_location.index_within_archetype;
+            }
+
+            old_archetype
+                .entities
+                .get_mut()
+                .unwrap()
+                .swap_remove(old_entity_location.index_within_archetype);
+        }
+
+        let new_archetype = &mut self.archetypes[new_archetype_index];
         // Insert the new component
         new_archetype
             .get_channel_mut(insert_position)
             .push(component);
 
-        // Migrate components from old archetype
-        let mut new_channel_index = 0;
-        for c in old_archetype.channels.iter_mut() {
-            if new_channel_index == insert_position {
-                new_channel_index += 1;
-            }
-
-            c.component_channel.migrate_component(
-                entity_location.index_within_archetype,
-                &mut *new_archetype.channels[new_channel_index].component_channel,
-            )
-        }
-
-        // `migrate_component` uses `swap_remove` internally, so another Entity's location
-        // is swapped and need updating.
-        let swapped_entity_index = old_archetype
-            .entities
-            .get_mut()
-            .unwrap()
-            .last()
-            .unwrap()
-            .index;
-
-        {
-            // Update the location of the entity
-            let location = &mut self.entities.generation_and_location[entity.index].1;
-            location.archetype_index = new_archetype_index;
-            location.index_within_archetype = new_archetype.entities.get_mut().unwrap().len();
-
-            // Update the location of the swapped entity.
-            let swapped_entity_location =
-                &mut self.entities.generation_and_location[swapped_entity_index].1;
-            swapped_entity_location.index_within_archetype = entity_location.index_within_archetype;
-        }
-
-        old_archetype
-            .entities
-            .get_mut()
-            .unwrap()
-            .swap_remove(entity_location.index_within_archetype);
         new_archetype.entities.get_mut().unwrap().push(entity);
 
         Some(())
     }
 
     pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
-        let entity_location = self.entities.get_location(entity)?;
+        let entity_location = self.entities.get_location(entity)??;
         let old_archetype_index = entity_location.archetype_index;
         let mut type_ids = self.archetypes[old_archetype_index].type_ids();
         let removing_component_id = TypeId::of::<T>();
@@ -219,14 +241,16 @@ impl World {
 
         {
             // Update the location of the entity
-            let location = &mut self.entities.generation_and_location[entity.index].1;
-            location.archetype_index = new_archetype_index;
-            location.index_within_archetype = new_archetype.entities.get_mut().unwrap().len();
+            let location = self.entities.get_at_index_mut(entity.index);
+            *location = Some(EntityLocation {
+                archetype_index: new_archetype_index,
+                index_within_archetype: new_archetype.entities.get_mut().unwrap().len(),
+            });
 
             // Update the location of the swapped entity.
-            let swapped_entity_location =
-                &mut self.entities.generation_and_location[swapped_entity_index].1;
-            swapped_entity_location.index_within_archetype = entity_location.index_within_archetype;
+            let swapped_entity_location = &mut self.entities.get_at_index_mut(swapped_entity_index);
+            swapped_entity_location.unwrap().index_within_archetype =
+                entity_location.index_within_archetype;
         }
 
         old_archetype
@@ -259,7 +283,7 @@ impl World {
     }
 
     pub fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Result<&mut T, ()> {
-        let entity_location = self.entities.get_location(entity).ok_or(())?;
+        let entity_location = self.entities.get_location(entity).flatten().ok_or(())?;
         let archetype = &mut self.archetypes[entity_location.archetype_index as usize];
         archetype
             .get_component_mut(entity_location.index_within_archetype)

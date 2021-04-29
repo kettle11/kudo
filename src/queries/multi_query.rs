@@ -468,7 +468,7 @@ where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
 {
     pub fn get_component<A: 'static>(&self, entity: Entity) -> Option<&A> {
-        let entity = self.entities.get_location(entity)?;
+        let entity = self.entities.get_location(entity)??;
         let archetype = self
             .archetype_borrows
             .binary_search_by_key(&entity.archetype_index, |a| a.archetype_index)
@@ -484,7 +484,7 @@ where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponentMut,
 {
     pub fn get_component_mut<A: 'static>(&mut self, entity: Entity) -> Option<&mut A> {
-        let entity = self.entities.get_location(entity)?;
+        let entity = self.entities.get_location(entity)??;
         let archetype = self
             .archetype_borrows
             .binary_search_by_key(&entity.archetype_index, |a| a.archetype_index)
