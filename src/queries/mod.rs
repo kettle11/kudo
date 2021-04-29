@@ -36,7 +36,12 @@ impl ResourceBorrows {
 
 // To be used for recreating and later for scheduling the query.
 pub trait QueryInfoTrait {
-    fn borrows(&self) -> ResourceBorrows;
+    fn borrows(&self) -> ResourceBorrows {
+        ResourceBorrows {
+            reads: Vec::new(),
+            writes: Vec::new(),
+        }
+    }
 }
 
 pub trait GetQueryInfoTrait {

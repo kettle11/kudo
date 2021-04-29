@@ -2,6 +2,8 @@ use crate::{Archetype, ComponentChannelStorage, ComponentTrait, Entity, EntityLo
 use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
 pub trait ComponentBundle: ComponentTrait {
+    /// For now this only works correctly for empty entities.
+    fn add_to_entity(self, world: &mut World, entity: Entity);
     fn spawn_in_world(self, world: &mut World) -> Entity;
 }
 
@@ -11,8 +13,8 @@ pub trait ComponentBundle: ComponentTrait {
 macro_rules! component_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
         impl< $($name: ComponentTrait),*> ComponentBundle for ($($name,)*) {
-            fn spawn_in_world(self, world: &mut World) -> Entity {
-                let new_entity = world.entities.new_entity_handle();
+
+            fn add_to_entity(self, world: &mut World, entity: Entity) {
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
 
                 debug_assert!(
@@ -51,12 +53,17 @@ macro_rules! component_bundle_impl {
                 $(archetype.get_channel_mut(order[$index]).push(self.$index);)*
 
                 let index_within_archetype = archetype.entities.get_mut().unwrap().len();
-                archetype.entities.get_mut().unwrap().push(new_entity);
+                archetype.entities.get_mut().unwrap().push(entity);
 
-                *world.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
+                *world.entities.get_at_index_mut(entity.index) = Some(EntityLocation {
                     archetype_index,
                     index_within_archetype
                 });
+            }
+
+            fn spawn_in_world(self, world: &mut World) -> Entity {
+                let new_entity = world.entities.new_entity_handle();
+                self.add_to_entity(world, new_entity);
                 new_entity
             }
         }
