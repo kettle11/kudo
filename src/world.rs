@@ -8,7 +8,7 @@ pub struct World {
     pub(crate) entities: Entities,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Entity {
     pub(crate) index: usize,
     pub(crate) generation: usize,

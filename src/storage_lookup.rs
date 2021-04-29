@@ -161,9 +161,8 @@ impl StorageLookup {
             for inner_filter in inner_filters.iter() {
                 let matches = inner_filter
                     .component_info
-                    .unwrap()
-                    .archetypes
-                    .get(archetype);
+                    .map(|c| c.archetypes.get(archetype))
+                    .flatten();
 
                 match inner_filter.filter.filter_type {
                     FilterType::With => {
@@ -246,6 +245,7 @@ impl StorageLookup {
             // This is most likely to happen if all queries are Optional.
             FilterType::Optional => todo!(),
         }
+
         archetype_matches
     }
 }

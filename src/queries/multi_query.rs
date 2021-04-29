@@ -544,6 +544,12 @@ impl<T: 'static> GetComponent for RwLockWriteGuard<'_, Vec<T>> {
     }
 }
 
+impl<G: GetComponent> GetComponent for Option<G> {
+    fn get_component<A: 'static>(&self, index: usize) -> Option<&A> {
+        self.as_ref().map(|v| v.get_component::<A>(index)).flatten()
+    }
+}
+
 impl<T: 'static> GetComponentMut for RwLockWriteGuard<'_, Vec<T>> {
     fn get_component_mut<A: 'static>(&mut self, index: usize) -> Option<&mut A> {
         let s = (self as &mut Vec<T> as &mut dyn Any).downcast_mut::<Vec<A>>()?;
@@ -555,5 +561,13 @@ impl<T: 'static> GetComponentMut for RwLockReadGuard<'_, Vec<T>> {
     fn get_component_mut<A: 'static>(&mut self, _index: usize) -> Option<&mut A> {
         // Perhaps this should be a more specific error if the type is within this but not mutable.
         None
+    }
+}
+
+impl<G: GetComponentMut> GetComponentMut for Option<G> {
+    fn get_component_mut<A: 'static>(&mut self, index: usize) -> Option<&mut A> {
+        self.as_mut()
+            .map(|v| v.get_component_mut::<A>(index))
+            .flatten()
     }
 }

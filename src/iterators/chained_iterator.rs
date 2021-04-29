@@ -22,19 +22,19 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
     fn next(&mut self) -> Option<Self::Item> {
         // Chain the iterators together.
         // If the end of one iterator is reached go to the next.
-        match self.current_iter {
-            Some(ref mut iter) => match iter.next() {
-                v @ Some(_) => v,
-                None => {
-                    self.current_iter = self.iterators.pop();
-                    if let Some(ref mut iter) = self.current_iter {
-                        iter.next()
-                    } else {
-                        None
-                    }
-                }
-            },
-            None => None,
+        loop {
+            match self.current_iter {
+                Some(ref mut iter) => match iter.next() {
+                    v @ Some(_) => return v,
+                    None => {}
+                },
+                None => {}
+            }
+            if let Some(i) = self.iterators.pop() {
+                self.current_iter = Some(i);
+            } else {
+                return None;
+            }
         }
     }
 
