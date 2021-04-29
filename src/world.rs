@@ -59,22 +59,31 @@ impl World {
         Ok(())
     }
 
+    /// Adds a component to an Entity
+    /// If the Entity does not exist, this returns None.
+    /// If a component of the same type is already attached to the Entity, the component will be replaced.s
     pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
         let old_entity_location = self.entities.get_location(entity)?;
 
-        let mut type_ids = if let Some(old_entity_location) = old_entity_location {
-            self.archetypes[old_entity_location.archetype_index].type_ids()
+        let (type_ids, insert_position) = if let Some(old_entity_location) = old_entity_location {
+            let mut type_ids = self.archetypes[old_entity_location.archetype_index].type_ids();
+            let new_component_id = TypeId::of::<T>();
+            let insert_position = match type_ids.binary_search(&new_component_id) {
+                Ok(i) => {
+                    // If the component already exists, simply replace it with the new one.
+                    self.archetypes[old_entity_location.archetype_index]
+                        .borrow_channel_mut::<T>(i)
+                        .unwrap()[old_entity_location.index_within_archetype] = component;
+                    return Some(());
+                }
+                Err(position) => {
+                    type_ids.insert(position, new_component_id);
+                    position
+                }
+            };
+            (type_ids, insert_position)
         } else {
-            Vec::new()
-        };
-
-        let new_component_id = TypeId::of::<T>();
-        let insert_position = match type_ids.binary_search(&new_component_id) {
-            Ok(_) => None?, // Entity already has this component
-            Err(position) => {
-                type_ids.insert(position, new_component_id);
-                position
-            }
+            (Vec::new(), 0)
         };
 
         // Find or create a new archetype for this entity.
@@ -120,6 +129,7 @@ impl World {
             );
             // Migrate components from old archetype
             let mut new_channel_index = 0;
+
             for c in old_archetype.channels.iter_mut() {
                 if new_channel_index == insert_position {
                     new_channel_index += 1;
@@ -128,7 +138,8 @@ impl World {
                 c.component_channel.migrate_component(
                     old_entity_location.index_within_archetype,
                     &mut *new_archetype.channels[new_channel_index].component_channel,
-                )
+                );
+                new_channel_index += 1;
             }
 
             // `migrate_component` uses `swap_remove` internally, so another Entity's location

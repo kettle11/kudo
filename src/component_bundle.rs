@@ -18,7 +18,7 @@ macro_rules! component_bundle_impl {
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
 
                 debug_assert!(
-                    type_ids_and_order.windows(2).all(|x| x[0].1 != x[1].1),
+                    type_ids_and_order.windows(2).all(|x: &[(usize, TypeId)] | x[0].1 != x[1].1),
                     "`ComponentBundles cannot have duplicate types!"
                 );
 
@@ -71,6 +71,7 @@ macro_rules! component_bundle_impl {
 }
 
 // I don't like this macro. It is tedious to edit the below definitions.
+component_bundle_impl! {0,}
 component_bundle_impl! {1, (A, 0)}
 component_bundle_impl! {2, (A, 0), (B, 1)}
 component_bundle_impl! {3, (A, 0), (B, 1), (C, 2)}
