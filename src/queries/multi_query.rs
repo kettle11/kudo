@@ -390,6 +390,32 @@ impl<'a, 'b, T: 'b + QueryParameters> Query<'a, T> {
     }
 }
 
+impl<'a, 'b, T: 'b + QueryParameters> Query<'a, T>
+where
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetIteratorMut<'b>,
+{
+    pub fn entities_and_components_mut(
+        &'b mut self,
+    ) -> ChainedIterator<
+        Zip<
+            std::iter::Copied<std::slice::Iter<'b, Entity>>,
+            <<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetIteratorMut<'b>>::Iter,
+        >,
+    > {
+        ChainedIterator::new(
+            self.archetype_borrows
+                .iter_mut()
+                .map(|i| {
+                    i.entities
+                        .iter()
+                        .copied()
+                        .zip(i.component_borrows.get_iter_mut())
+                })
+                .collect(),
+        )
+    }
+}
+
 impl<'b, A: GetIterator<'b>> IntoIterator for &'b ArchetypeBorrow<'_, (A,)> {
     type Item = <Self::IntoIter as Iterator>::Item;
     type IntoIter = A::Iter;
