@@ -1,4 +1,4 @@
-use std::any::TypeId;
+use std::{any::TypeId, collections::HashMap};
 
 use crate::*;
 
@@ -6,6 +6,22 @@ pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
+    pub(crate) cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
+}
+
+pub(crate) trait ClonerTrait {
+    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype);
+}
+
+struct Cloner<T: Clone + 'static> {
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: Clone + 'static> ClonerTrait for Cloner<T> {
+    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype) {
+        let channel = archetype.get_channel_mut::<T>(channel);
+        channel.push(channel[index].clone())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -32,7 +48,44 @@ impl World {
             archetypes: Vec::new(),
             entities: Entities::new(),
             storage_lookup: StorageLookup::new(),
+            cloners: HashMap::new(),
         }
+    }
+
+    pub fn register_clone_type<T: Clone + 'static>(&mut self) {
+        self.cloners.insert(
+            TypeId::of::<T>(),
+            Box::new(Cloner::<T> {
+                phantom: std::marker::PhantomData,
+            }),
+        );
+    }
+
+    /// Clones an entity
+    /// For now this will fail if any components can't be cloned.
+    pub fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
+        let entity_location = self.entities.get_location(entity)??;
+
+        let archetype = &mut self.archetypes[entity_location.archetype_index];
+        let mut cloners = Vec::with_capacity(archetype.channels.len());
+        for channel in &archetype.channels {
+            cloners.push(self.cloners.get(&channel.type_id)?)
+        }
+
+        for (channel, cloner) in (0..archetype.channels.len()).zip(cloners) {
+            cloner.clone_within(entity_location.index_within_archetype, channel, archetype)
+        }
+
+        let new_entity = self.entities.new_entity_handle();
+        let index_within_archetype = archetype.entities.get_mut().unwrap().len();
+        archetype.entities.get_mut().unwrap().push(new_entity);
+
+        *self.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
+            archetype_index: entity_location.archetype_index,
+            index_within_archetype,
+        });
+
+        Some(new_entity)
     }
 
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
@@ -312,15 +365,3 @@ fn index_mut_twice<T>(slice: &mut [T], first: usize, second: usize) -> (&mut T, 
         (&mut b[0], &mut a[second])
     }
 }
-
-/*
-pub trait WorldTrait {
-    fn new() -> Self;
-    fn query<'world_borrow, T: QueryParameters + 'world_borrow>(
-        &'world_borrow self,
-    ) -> Result<
-        <<Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result as GetQueryDirect>::Arg,
-        Error,
-    >;
-}
-*/

@@ -241,3 +241,37 @@ fn get_component_fail() {
     let query = world.query::<(&f32,)>().unwrap();
     assert!(query.get_component::<bool>(entity).is_none());
 }
+
+#[test]
+fn generic_system() {
+    use crate::*;
+    use std::fmt::Debug;
+
+    let mut world = World::new();
+    world.spawn((false,));
+
+    fn test_system<T: Debug>(_data: &mut T) {}
+    test_system::<bool>.run(&world).unwrap();
+}
+
+#[test]
+fn generic_query() {
+    use crate::*;
+
+    let mut world = World::new();
+    world.spawn((false,));
+
+    fn test_system<Q: for<'a> QueryTrait<'a>>(q: Q) {}
+    test_system::<Query<(&bool,)>>.run(&world).unwrap();
+}
+
+#[test]
+fn clone() {
+    use crate::*;
+
+    let mut world = World::new();
+    world.register_clone_type::<bool>();
+    let entity = world.spawn((false,));
+    world.clone_entity(entity).unwrap();
+    assert!(world.query::<(&bool,)>().unwrap().iter().count() == 2);
+}
