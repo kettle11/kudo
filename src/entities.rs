@@ -76,9 +76,9 @@ impl Entities {
         if *generation == entity.generation {
             *generation += 1;
             inner.free_entity_indices.push(entity.index);
-            Err(())
-        } else {
             Ok(*entity_location)
+        } else {
+            Err(())
         }
     }
 }

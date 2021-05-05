@@ -14,6 +14,7 @@ macro_rules! component_bundle_impl {
     ($count: expr, $(($name: ident, $index: tt)),*) => {
         impl< $($name: ComponentTrait),*> ComponentBundle for ($($name,)*) {
 
+            /// For now this only works if the Entity has no components.
             fn add_to_entity(self, world: &mut World, entity: Entity) {
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
 
@@ -55,7 +56,11 @@ macro_rules! component_bundle_impl {
                 let index_within_archetype = archetype.entities.get_mut().unwrap().len();
                 archetype.entities.get_mut().unwrap().push(entity);
 
-                *world.entities.get_at_index_mut(entity.index) = Some(EntityLocation {
+                let entity_location = world.entities.get_at_index_mut(entity.index);
+
+                // This function only works for now on empty `Entity`s, panic otherwise.
+                assert!(entity_location.is_none());
+                *entity_location = Some(EntityLocation {
                     archetype_index,
                     index_within_archetype
                 });

@@ -275,3 +275,40 @@ fn clone() {
     world.clone_entity(entity).unwrap();
     assert!(world.query::<(&bool,)>().unwrap().iter().count() == 2);
 }
+
+#[test]
+fn fail_to_clone() {
+    use crate::*;
+    let mut world = World::new();
+    let entity = world.spawn((false,));
+    assert!(world.clone_entity(entity).is_none());
+}
+
+#[test]
+fn hierarchy() {
+    use crate::*;
+    let mut world = World::new();
+    let parent = world.spawn((0,));
+    let child = world.spawn((1,));
+
+    world.set_parent(Some(parent), child);
+}
+
+#[test]
+fn despawn() {
+    use crate::*;
+    let mut world = World::new();
+    let entity = world.spawn((0,));
+    world.despawn(entity).unwrap();
+}
+
+#[test]
+fn hierarchy_despawn() {
+    use crate::*;
+    let mut world = World::new();
+    let parent = world.spawn((0,));
+    let child = world.spawn((1,));
+
+    world.set_parent(Some(parent), child);
+    world.despawn(parent).unwrap();
+}
