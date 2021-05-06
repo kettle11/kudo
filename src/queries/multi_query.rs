@@ -1,7 +1,7 @@
 use super::*;
 use crate::*;
 
-use std::any::Any;
+use std::{any::Any, iter::Map};
 
 use crate::{entities::Entities, ChainedIterator};
 use std::{
@@ -375,17 +375,34 @@ where
 }
 
 impl<'a, 'b, T: 'b + QueryParameters> Query<'a, T> {
-    pub fn entities(&'b self) -> ChainedIterator<std::iter::Copied<std::slice::Iter<'b, Entity>>> {
+    pub fn entities(&'b self) -> ChainedIterator<EntityCloneIter<'b>> {
         ChainedIterator::new(
             self.archetype_borrows
                 .iter()
-                .map(|i| i.entities.iter().copied())
+                .map(|i| EntityCloneIter {
+                    iter: i.entities.iter(),
+                })
                 .collect(),
         )
     }
 }
 
-impl<'a, 'b, T: 'b + QueryParameters> Query<'a, T>
+pub struct EntityCloneIter<'a> {
+    iter: std::slice::Iter<'a, Entity>,
+}
+
+impl<'a> Iterator for EntityCloneIter<'a> {
+    type Item = Entity;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|e| e.clone())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T>
 where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetIteratorMut<'b>,
 {
@@ -393,7 +410,7 @@ where
         &'b mut self,
     ) -> ChainedIterator<
         Zip<
-            std::iter::Copied<std::slice::Iter<'b, Entity>>,
+            EntityCloneIter<'b>,
             <<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetIteratorMut<'b>>::Iter,
         >,
     > {
@@ -401,10 +418,10 @@ where
             self.archetype_borrows
                 .iter_mut()
                 .map(|i| {
-                    i.entities
-                        .iter()
-                        .copied()
-                        .zip(i.component_borrows.get_iter_mut())
+                    EntityCloneIter {
+                        iter: i.entities.iter(),
+                    }
+                    .zip(i.component_borrows.get_iter_mut())
                 })
                 .collect(),
         )
@@ -488,7 +505,7 @@ impl<'a, T: QueryParameters> Query<'a, T>
 where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
 {
-    pub fn get_component<A: 'static>(&self, entity: Entity) -> Option<&A> {
+    pub fn get_component<A: 'static>(&self, entity: &Entity) -> Option<&A> {
         let entity = self.entities.get_location(entity)??;
         let archetype = self
             .archetype_borrows
@@ -504,7 +521,7 @@ impl<'a, T: QueryParameters> Query<'a, T>
 where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponentMut,
 {
-    pub fn get_component_mut<A: 'static>(&mut self, entity: Entity) -> Option<&mut A> {
+    pub fn get_component_mut<A: 'static>(&mut self, entity: &Entity) -> Option<&mut A> {
         let entity = self.entities.get_location(entity)??;
         let archetype = self
             .archetype_borrows

@@ -38,7 +38,6 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
         }
     }
 
-    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let mut min = 0;
         let mut max = 0;

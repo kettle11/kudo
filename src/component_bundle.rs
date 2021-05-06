@@ -1,6 +1,5 @@
-use crate::{
-    Archetype, ComponentChannelStorage, ComponentTrait, Entity, EntityLocation, World, WorldInner,
-};
+use crate::*;
+
 use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
 pub trait ComponentBundle: ComponentTrait {
@@ -56,7 +55,7 @@ macro_rules! component_bundle_impl {
                 $(archetype.get_channel_mut(order[$index]).push(self.$index);)*
 
                 let index_within_archetype = archetype.entities.get_mut().unwrap().len();
-                archetype.entities.get_mut().unwrap().push(entity);
+                archetype.entities.get_mut().unwrap().push(entity.clone());
 
                 let entity_location = world.entities.get_at_index_mut(entity.index);
 
@@ -70,7 +69,7 @@ macro_rules! component_bundle_impl {
 
             fn spawn_in_world(self, world: &mut WorldInner) -> Entity {
                 let new_entity = world.entities.new_entity_handle();
-                self.add_to_entity(world, new_entity);
+                self.add_to_entity(world, new_entity.clone());
                 new_entity
             }
         }

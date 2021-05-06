@@ -31,15 +31,33 @@ impl<T: Clone + 'static> ClonerTrait for Cloner<T> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Entity {
     pub(crate) index: usize,
     pub(crate) generation: usize,
 }
 
+pub trait EntityClone {
+    fn clone(&self) -> Self;
+}
 impl Entity {
     pub fn index(&self) -> usize {
         self.index
+    }
+}
+
+impl EntityClone for Entity {
+    fn clone(&self) -> Self {
+        Self {
+            index: self.index,
+            generation: self.generation,
+        }
+    }
+}
+
+impl<E: EntityClone> EntityClone for Option<E> {
+    fn clone(&self) -> Self {
+        self.as_ref().map(|e| e.clone())
     }
 }
 
@@ -61,42 +79,42 @@ impl World {
 
     fn clone_hierarchy(
         &mut self,
-        entity_to_clone: Entity,
-        new_parent: Option<Entity>,
-        new_next_sibling: Option<Entity>,
+        entity_to_clone: &Entity,
+        new_parent: Option<&Entity>,
+        new_next_sibling: Option<&Entity>,
     ) -> Option<Entity> {
         let new_entity = self.clone_entity_inner(entity_to_clone)?;
 
         if let Some(node) = self
             .get_component_mut::<HierarchyNode>(entity_to_clone)
-            .cloned()
+            .map(|h| h.clone())
         {
             let new_previous_sibling = if let Some(previous_sibling) = node.previous_sibling {
-                Some(self.clone_hierarchy(previous_sibling, new_parent, Some(new_entity))?)
+                Some(self.clone_hierarchy(&previous_sibling, new_parent, Some(&new_entity))?)
             } else {
                 None
             };
 
             let new_last_child = if let Some(last_child) = node.last_child {
-                Some(self.clone_hierarchy(last_child, Some(new_entity), None)?)
+                Some(self.clone_hierarchy(&last_child, Some(&new_entity), None)?)
             } else {
                 None
             };
 
             *self
-                .get_component_mut::<HierarchyNode>(entity_to_clone)
+                .get_component_mut::<HierarchyNode>(&entity_to_clone)
                 .unwrap() = HierarchyNode {
-                parent: new_parent,
+                parent: new_parent.map(|e| e.clone()),
                 previous_sibling: new_previous_sibling,
                 last_child: new_last_child,
-                next_sibling: new_next_sibling,
+                next_sibling: new_next_sibling.map(|e| e.clone()),
             }
         }
 
         Some(new_entity)
     }
 
-    fn clone_entity_inner(&mut self, entity: Entity) -> Option<Entity> {
+    fn clone_entity_inner(&mut self, entity: &Entity) -> Option<Entity> {
         let entity_location = self.inner.entities.get_location(entity)??;
 
         let archetype = &mut self.inner.archetypes[entity_location.archetype_index];
@@ -112,7 +130,11 @@ impl World {
 
         let new_entity = self.inner.entities.new_entity_handle();
         let index_within_archetype = archetype.entities.get_mut().unwrap().len();
-        archetype.entities.get_mut().unwrap().push(new_entity);
+        archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .push(new_entity.clone());
 
         *self.inner.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
             archetype_index: entity_location.archetype_index,
@@ -137,7 +159,11 @@ impl World {
     /// Adds a component to an Entity
     /// If the Entity does not exist, this returns None.
     /// If a component of the same type is already attached to the Entity, the component will be replaced.s
-    pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
+    pub fn add_component<T: ComponentTrait>(
+        &mut self,
+        entity: &Entity,
+        component: T,
+    ) -> Option<()> {
         self.inner.add_component(entity, component)
     }
 
@@ -168,7 +194,7 @@ impl WorldTrait for World {
     /// Clones an `Entity` and returns a new `Entity`.
     /// For now this will return `None` if any components can't be cloned.
     /// If this Entity has child `Entity`s they will be recursively cloned as well.
-    fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
+    fn clone_entity(&mut self, entity: &Entity) -> Option<Entity> {
         if self.get_component_mut::<HierarchyNode>(entity).is_some() {
             // Hierarchies need special care when cloning
             // because they will also clone child Entity's
@@ -184,16 +210,16 @@ impl WorldTrait for World {
 
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
-    fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
+    fn despawn(&mut self, entity: &Entity) -> Result<(), ()> {
         self.inner.despawn(entity)
     }
 
-    fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
+    fn remove_component<T: 'static>(&mut self, entity: &Entity) -> Option<T> {
         self.inner.remove_component(entity)
     }
 
     /// This will return None if the `Entity` does not exist or the `Entity` does not have the component.
-    fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
+    fn get_component_mut<T: 'static>(&mut self, entity: &Entity) -> Option<&mut T> {
         self.inner.get_component_mut(entity)
     }
 }
@@ -227,25 +253,34 @@ impl WorldInner {
 
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
-    pub(crate) fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
+    pub(crate) fn despawn(&mut self, entity: &Entity) -> Result<(), ()> {
         let entity_location = self.entities.free_entity(entity)?;
         if let Some(entity_location) = entity_location {
             let archetype = &mut self.archetypes[entity_location.archetype_index];
-            let swapped_entity = *archetype.entities.get_mut().unwrap().last().ok_or(())?;
+            let swapped_entity = archetype
+                .entities
+                .get_mut()
+                .unwrap()
+                .last()
+                .map(|e| e.clone())
+                .ok_or(())?;
             archetype.swap_remove(entity_location.index_within_archetype);
 
-            if swapped_entity != entity {
+            if &swapped_entity != entity {
                 *self.entities.get_at_index_mut(swapped_entity.index) = Some(entity_location);
             }
 
             // If this is a hierarchy node then child `Entity`s and their children should be removed.
-            if let Some(hierarchy_node) = self.get_component_mut::<HierarchyNode>(entity).cloned() {
+            if let Some(hierarchy_node) = self
+                .get_component_mut::<HierarchyNode>(entity)
+                .map(|h| h.clone())
+            {
                 // Despawn all children and their siblings
                 let mut current_child = hierarchy_node.last_child;
                 while let Some(child) = current_child {
                     current_child = self
-                        .get_component_mut::<HierarchyNode>(child)
-                        .map(|n| n.previous_sibling)
+                        .get_component_mut::<HierarchyNode>(&child)
+                        .map(|n| n.previous_sibling.clone())
                         .flatten();
                     self.despawn(entity)?;
                 }
@@ -254,7 +289,7 @@ impl WorldInner {
         Ok(())
     }
 
-    pub(crate) fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
+    pub(crate) fn remove_component<T: 'static>(&mut self, entity: &Entity) -> Option<T> {
         let entity_location = self.entities.get_location(entity)??;
         let old_archetype_index = entity_location.archetype_index;
         let mut type_ids = self.archetypes[old_archetype_index].type_ids();
@@ -341,7 +376,11 @@ impl WorldInner {
             .get_mut()
             .unwrap()
             .swap_remove(entity_location.index_within_archetype);
-        new_archetype.entities.get_mut().unwrap().push(entity);
+        new_archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .push(entity.clone());
 
         Some(
             old_archetype
@@ -351,7 +390,7 @@ impl WorldInner {
     }
 
     /// This will return None if the `Entity` does not exist or the `Entity` does not have the component.
-    pub(crate) fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
+    pub(crate) fn get_component_mut<T: 'static>(&mut self, entity: &Entity) -> Option<&mut T> {
         let entity_location = self
             .entities
             .get_location(entity)
@@ -366,7 +405,7 @@ impl WorldInner {
 
     pub(crate) fn add_component<T: ComponentTrait>(
         &mut self,
-        entity: Entity,
+        entity: &Entity,
         component: T,
     ) -> Option<()> {
         let old_entity_location = self.entities.get_location(entity)?;
@@ -489,7 +528,11 @@ impl WorldInner {
             .get_channel_mut(insert_position)
             .push(component);
 
-        new_archetype.entities.get_mut().unwrap().push(entity);
+        new_archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .push(entity.clone());
 
         Some(())
     }
@@ -510,11 +553,11 @@ impl WorldPrivate for WorldInner {
 
 pub trait WorldTrait: WorldPrivate {
     fn new() -> Self;
-    fn clone_entity(&mut self, entity: Entity) -> Option<Entity>;
-    fn despawn(&mut self, entity: Entity) -> Result<(), ()>;
+    fn clone_entity(&mut self, entity: &Entity) -> Option<Entity>;
+    fn despawn(&mut self, entity: &Entity) -> Result<(), ()>;
     fn reserve_entity(&self) -> Entity;
-    fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T>;
-    fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T>;
+    fn remove_component<T: 'static>(&mut self, entity: &Entity) -> Option<T>;
+    fn get_component_mut<T: 'static>(&mut self, entity: &Entity) -> Option<&mut T>;
 }
 
 pub trait WorldPrivate {

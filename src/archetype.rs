@@ -95,19 +95,21 @@ impl Archetype {
     }
 }
 
+// This may be used later when scheduling.
+static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 pub(crate) struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
-    pub(crate) component_channel: Box<dyn ComponentChannel>,
     pub(crate) channel_id: usize,
+    pub(crate) component_channel: Box<dyn ComponentChannel>,
 }
-static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 impl ComponentChannelStorage {
     pub fn new<T: ComponentTrait>() -> Self {
-        ComponentChannelStorage {
+        Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
-            type_id: TypeId::of::<T>(),
             channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
+            type_id: TypeId::of::<T>(),
         }
     }
 
@@ -117,6 +119,52 @@ impl ComponentChannelStorage {
             component_channel: self.component_channel.new_same_type(),
             channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
         }
+    }
+}
+
+pub(crate) struct ComponentChannelStorageClone {
+    pub(crate) type_id: TypeId,
+    pub(crate) channel_id: usize,
+    component_channel: Box<dyn CloneComponentChannel>,
+}
+
+impl ComponentChannelStorageClone {
+    pub fn new<T: ComponentTrait + Clone>() -> Self {
+        Self {
+            component_channel: Box::new(RwLock::new(Vec::<T>::new())),
+            channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
+            type_id: TypeId::of::<T>(),
+        }
+    }
+
+    pub fn new_same_type(&self) -> ComponentChannelStorageClone {
+        Self {
+            type_id: self.type_id,
+            component_channel: self.component_channel.new_same_type_clone(),
+            channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+}
+
+pub trait CloneComponentChannel: ComponentChannel {
+    fn clone_into(&mut self, into: &mut dyn ComponentChannel, index: usize);
+    fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannel>;
+}
+
+impl<T: ComponentTrait + Clone> CloneComponentChannel for RwLock<Vec<T>> {
+    fn clone_into(&mut self, other: &mut dyn ComponentChannel, index: usize) {
+        let data: T = self.get_mut().unwrap()[index].clone();
+        let other = other
+            .to_any_mut()
+            .downcast_mut::<RwLock<Vec<T>>>()
+            .unwrap()
+            .get_mut()
+            .unwrap();
+        other.push(data);
+    }
+
+    fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannel> {
+        Box::new(RwLock::new(Vec::<T>::new()))
     }
 }
 

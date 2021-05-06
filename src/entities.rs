@@ -43,7 +43,7 @@ impl Entities {
         }
     }
 
-    pub fn get_location(&self, entity: Entity) -> Option<Option<EntityLocation>> {
+    pub fn get_location(&self, entity: &Entity) -> Option<Option<EntityLocation>> {
         let inner = self.inner.lock().unwrap();
         let (generation, location) = inner.generation_and_location.get(entity.index)?;
         if *generation == entity.generation {
@@ -69,7 +69,7 @@ impl Entities {
     }
 
     /// Returns the location of the freed Entity if it exists
-    pub fn free_entity(&mut self, entity: Entity) -> Result<Option<EntityLocation>, ()> {
+    pub fn free_entity(&mut self, entity: &Entity) -> Result<Option<EntityLocation>, ()> {
         let inner = self.inner.get_mut().unwrap();
         let (generation, entity_location) = &mut inner.generation_and_location[entity.index];
 
