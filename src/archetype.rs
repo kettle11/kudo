@@ -129,7 +129,7 @@ static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
     pub(crate) channel_id: usize,
-    pub(crate) component_channel: Box<dyn ComponentChannel>,
+    pub(crate) component_channel: Box<dyn ComponentChannelTrait>,
 }
 
 impl ComponentChannelStorage {
@@ -174,13 +174,13 @@ impl ComponentChannelStorageClone {
     }
 }
 
-pub trait CloneComponentChannel: ComponentChannel {
-    fn clone_into(&mut self, into: &mut dyn ComponentChannel, index: usize);
+pub trait CloneComponentChannel: ComponentChannelTrait {
+    fn clone_into(&mut self, into: &mut dyn ComponentChannelTrait, index: usize);
     fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannel>;
 }
 
 impl<T: ComponentTrait + Clone> CloneComponentChannel for RwLock<Vec<T>> {
-    fn clone_into(&mut self, other: &mut dyn ComponentChannel, index: usize) {
+    fn clone_into(&mut self, other: &mut dyn ComponentChannelTrait, index: usize) {
         let data: T = self.get_mut().unwrap()[index].clone();
         let other = other
             .to_any_mut()
@@ -196,16 +196,16 @@ impl<T: ComponentTrait + Clone> CloneComponentChannel for RwLock<Vec<T>> {
     }
 }
 
-pub trait ComponentChannel: Send + Sync {
+pub trait ComponentChannelTrait: Send + Sync {
     fn to_any(&self) -> &dyn Any;
     fn to_any_mut(&mut self) -> &mut dyn Any;
-    fn new_same_type(&self) -> Box<dyn ComponentChannel>;
-    fn migrate_component(&mut self, index: usize, other: &mut dyn ComponentChannel);
+    fn new_same_type(&self) -> Box<dyn ComponentChannelTrait>;
+    fn migrate_component(&mut self, index: usize, other: &mut dyn ComponentChannelTrait);
     fn swap_remove(&mut self, index: usize);
     fn print_type(&self);
 }
 
-impl<T: ComponentTrait> ComponentChannel for RwLock<Vec<T>> {
+impl<T: ComponentTrait> ComponentChannelTrait for RwLock<Vec<T>> {
     fn to_any(&self) -> &dyn Any {
         self
     }
@@ -214,7 +214,7 @@ impl<T: ComponentTrait> ComponentChannel for RwLock<Vec<T>> {
         self
     }
 
-    fn new_same_type(&self) -> Box<dyn ComponentChannel> {
+    fn new_same_type(&self) -> Box<dyn ComponentChannelTrait> {
         Box::new(RwLock::new(Vec::<T>::new()))
     }
 
@@ -227,7 +227,7 @@ impl<T: ComponentTrait> ComponentChannel for RwLock<Vec<T>> {
         self.get_mut().unwrap().swap_remove(index);
     }
 
-    fn migrate_component(&mut self, index: usize, other: &mut dyn ComponentChannel) {
+    fn migrate_component(&mut self, index: usize, other: &mut dyn ComponentChannelTrait) {
         let data: T = self.get_mut().unwrap().swap_remove(index);
         let other = other
             .to_any_mut()
