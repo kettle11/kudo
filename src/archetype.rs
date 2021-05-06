@@ -9,20 +9,44 @@ pub struct Archetype {
     pub(crate) channels: Vec<ComponentChannelStorage>,
 }
 
-impl Archetype {
-    pub fn new() -> Self {
+pub trait ArchetypeTrait {
+    fn new() -> Self;
+    fn type_ids(&self) -> Vec<TypeId>;
+    fn get_channel_mut<T: 'static>(&mut self, channel_index: usize) -> &mut Vec<T>;
+    fn get_component_mut<T: 'static>(&mut self, entity_index: usize) -> Result<&mut T, ()>;
+    fn borrow_channel<T: 'static>(
+        &self,
+        channel_index: usize,
+    ) -> Result<RwLockReadGuard<Vec<T>>, Error>;
+    fn borrow_channel_mut<T: 'static>(
+        &self,
+        channel_index: usize,
+    ) -> Result<RwLockWriteGuard<Vec<T>>, Error>;
+    fn new_channel<T: Sync + Send + 'static>(&mut self);
+    fn new_channel_same_type(&mut self, c: &ComponentChannelStorage);
+    fn sort_channels(&mut self);
+    fn swap_remove(&mut self, index: usize);
+    fn entities(&self) -> RwLockReadGuard<Vec<Entity>>;
+}
+
+impl ArchetypeTrait for Archetype {
+    fn new() -> Self {
         Self {
             entities: RwLock::new(Vec::new()),
             channels: Vec::new(),
         }
     }
 
-    pub fn type_ids(&self) -> Vec<TypeId> {
+    fn type_ids(&self) -> Vec<TypeId> {
         self.channels.iter().map(|c| c.type_id).collect()
     }
 
+    fn entities(&self) -> RwLockReadGuard<Vec<Entity>> {
+        self.entities.read().unwrap()
+    }
+
     /// Directly access the channel
-    pub fn get_channel_mut<T: 'static>(&mut self, channel_index: usize) -> &mut Vec<T> {
+    fn get_channel_mut<T: 'static>(&mut self, channel_index: usize) -> &mut Vec<T> {
         // self.channels[channel_index].component_channel.print_type();
         self.channels[channel_index]
             .component_channel
@@ -33,7 +57,7 @@ impl Archetype {
             .unwrap()
     }
 
-    pub fn get_component_mut<T: 'static>(&mut self, entity_index: usize) -> Result<&mut T, ()> {
+    fn get_component_mut<T: 'static>(&mut self, entity_index: usize) -> Result<&mut T, ()> {
         let type_id = TypeId::of::<T>();
         for channel in self.channels.iter_mut() {
             if channel.type_id == type_id {
@@ -51,7 +75,7 @@ impl Archetype {
         Err(())
     }
 
-    pub(crate) fn borrow_channel<T: 'static>(
+    fn borrow_channel<T: 'static>(
         &self,
         channel_index: usize,
     ) -> Result<RwLockReadGuard<Vec<T>>, Error> {
@@ -64,7 +88,7 @@ impl Archetype {
             .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))?)
     }
 
-    pub(crate) fn borrow_channel_mut<T: 'static>(
+    fn borrow_channel_mut<T: 'static>(
         &self,
         channel_index: usize,
     ) -> Result<RwLockWriteGuard<Vec<T>>, Error> {
@@ -77,17 +101,21 @@ impl Archetype {
             .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))?)
     }
 
-    pub(crate) fn push_channel(&mut self, c: ComponentChannelStorage) {
-        self.channels.push(c);
+    fn new_channel<T: Sync + Send + 'static>(&mut self) {
+        self.channels.push(ComponentChannelStorage::new::<T>());
+    }
+
+    fn new_channel_same_type(&mut self, c: &ComponentChannelStorage) {
+        self.channels.push(c.new_same_type());
     }
 
     /// To be used after an Archetype is done being constructed
-    pub(crate) fn sort_channels(&mut self) {
+    fn sort_channels(&mut self) {
         self.channels
             .sort_unstable_by(|a, b| a.type_id.cmp(&b.type_id));
     }
 
-    pub(crate) fn swap_remove(&mut self, index: usize) {
+    fn swap_remove(&mut self, index: usize) {
         for channel in &mut self.channels {
             channel.component_channel.swap_remove(index)
         }
@@ -98,7 +126,7 @@ impl Archetype {
 // This may be used later when scheduling.
 static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-pub(crate) struct ComponentChannelStorage {
+pub struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
     pub(crate) channel_id: usize,
     pub(crate) component_channel: Box<dyn ComponentChannel>,

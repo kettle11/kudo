@@ -1,7 +1,7 @@
 use super::*;
 use crate::*;
 
-use std::{any::Any, iter::Map};
+use std::any::Any;
 
 use crate::{entities::Entities, ChainedIterator};
 use std::{
@@ -57,7 +57,7 @@ pub trait QueryParameter: for<'a> QueryParameterBorrow<'a> {
 pub trait QueryParameterBorrow<'a> {
     type ParameterBorrow;
     fn borrow(
-        archetype: &'a Archetype,
+        archetype: &'a impl ArchetypeTrait,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error>;
 }
@@ -77,7 +77,7 @@ impl<T: 'static> QueryParameter for &T {
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &T {
     type ParameterBorrow = RwLockReadGuard<'a, Vec<T>>;
     fn borrow(
-        archetype: &'a Archetype,
+        archetype: &'a impl ArchetypeTrait,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
         archetype.borrow_channel(channel_index.unwrap())
@@ -101,7 +101,7 @@ impl<Q: QueryParameter> QueryParameter for Option<Q> {
 impl<'a, Q: QueryParameterBorrow<'a>> QueryParameterBorrow<'a> for Option<Q> {
     type ParameterBorrow = Option<Q::ParameterBorrow>;
     fn borrow(
-        archetype: &'a Archetype,
+        archetype: &'a impl ArchetypeTrait,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
         Ok(if let Some(channel_index) = channel_index {
@@ -127,7 +127,7 @@ impl<T: 'static> QueryParameter for &mut T {
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
     type ParameterBorrow = RwLockWriteGuard<'a, Vec<T>>;
     fn borrow(
-        archetype: &'a Archetype,
+        archetype: &'a impl ArchetypeTrait,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
         archetype.borrow_channel_mut(channel_index.unwrap())
@@ -165,7 +165,7 @@ macro_rules! query_impl{
                             $(<$name as QueryParameterBorrow<'a>>::borrow(archetype, $name)?,)*
                         ),
                         archetype_index: archetype_info.archetype_index,
-                        entities: archetype.entities.read().unwrap(),
+                        entities: archetype.entities(),
                     })
                 }
                 Ok(Some(Query { entities: world.entities(), archetype_borrows }))
@@ -189,12 +189,14 @@ macro_rules! query_impl{
                 archetypes.sort_by_key(|a| a.archetype_index);
 
                 // Look up resource index.
+                /*
                 for archetype_match in &mut archetypes {
                     let archetype = &world.borrow_archetype(archetype_match.archetype_index);
                     for (channel, resource_index) in archetype_match.channels.iter().zip(archetype_match.resource_indices.iter_mut()) {
                         *resource_index = channel.map(|channel| archetype.channels[channel].channel_id);
                     }
                 }
+                */
 
                 let write = [$($name::write(),)*];
                 Ok(QueryInfo { archetypes, write})

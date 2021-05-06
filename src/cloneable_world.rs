@@ -30,24 +30,46 @@ impl WorldTrait for CloneableWorld {
     }
 
     fn clone_entity(&mut self, entity: &Entity) -> Option<Entity> {
-        // This implementation can avoid looking up if types are clone
+        // This implementation can avoid looking up if types can be cloned
         // because it can be assumed that they are.
         todo!()
     }
 }
 
 impl CloneableWorld {
-    pub fn spawn<CB: ComponentBundle + Clone>(&mut self, component_bundle: CB) -> Entity {
+    pub fn spawn<CB: ComponentBundle + WorldClone>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(&mut self.inner)
     }
 
     /// Adds this CloneableWorld to another world.
-    pub fn add_to_world(self, world: impl WorldTrait) {
+    pub fn add_to_world(self, entity: &Entity, world: impl WorldTrait) {
+        // This needs to iterate through all of the `Entity`'s components and clone
+        // them into the new world.
+        todo!()
+    }
+}
+
+/// Can be cloned between worlds.
+/// This trait works similarly to `Clone`, but it is implemented in a way that
+/// preserves `Entity` relationships when cloning into different worlds.
+pub trait WorldClone {
+    fn world_clone(&self) -> Self;
+}
+
+impl<T: Clone> WorldClone for T {
+    fn world_clone(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl WorldClone for Entity {
+    fn world_clone(&self) -> Self {
         todo!()
     }
 }
 
 impl WorldPrivate for CloneableWorld {
+    type Archetype = Archetype;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }

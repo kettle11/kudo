@@ -7,7 +7,7 @@ pub use exclusive_world_query::*;
 pub use multi_query::*;
 pub use single_query::*;
 
-use crate::{Error, World, WorldTrait};
+use crate::{Error, WorldTrait};
 
 #[derive(Clone)]
 pub enum ReadOrWrite {

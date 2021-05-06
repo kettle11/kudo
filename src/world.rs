@@ -12,7 +12,7 @@ pub struct WorldInner {
 }
 
 pub struct World {
-    pub(crate) inner: WorldInner,
+    pub inner: WorldInner,
     cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
 }
 
@@ -225,6 +225,7 @@ impl WorldTrait for World {
 }
 
 impl WorldPrivate for World {
+    type Archetype = <WorldInner as WorldPrivate>::Archetype;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }
@@ -311,7 +312,7 @@ impl WorldInner {
                 for c in self.archetypes[old_archetype_index].channels.iter() {
                     // Skip the channel we're removing.
                     if i != remove_channel_index {
-                        new_archetype.push_channel(c.new_same_type());
+                        new_archetype.new_channel_same_type(c);
                     }
                     i += 1;
                 }
@@ -446,15 +447,15 @@ impl WorldInner {
                         .iter()
                     {
                         if i == insert_position {
-                            new_archetype.push_channel(ComponentChannelStorage::new::<T>());
+                            new_archetype.new_channel::<T>();
                         }
-                        new_archetype.push_channel(c.new_same_type());
+                        new_archetype.new_channel_same_type(c);
                         i += 1;
                     }
                 }
 
                 if i == insert_position {
-                    new_archetype.push_channel(ComponentChannelStorage::new::<T>());
+                    new_archetype.new_channel::<T>();
                 }
 
                 let new_archetype_index = self.archetypes.len();
@@ -538,6 +539,8 @@ impl WorldInner {
     }
 }
 impl WorldPrivate for WorldInner {
+    type Archetype = Archetype;
+
     fn storage_lookup(&self) -> &StorageLookup {
         &self.storage_lookup
     }
@@ -552,6 +555,7 @@ impl WorldPrivate for WorldInner {
 }
 
 pub trait WorldTrait: WorldPrivate {
+    // type Archetype: ArchetypeTrait;
     fn new() -> Self;
     fn clone_entity(&mut self, entity: &Entity) -> Option<Entity>;
     fn despawn(&mut self, entity: &Entity) -> Result<(), ()>;
@@ -561,9 +565,10 @@ pub trait WorldTrait: WorldPrivate {
 }
 
 pub trait WorldPrivate {
+    type Archetype: ArchetypeTrait;
     fn storage_lookup(&self) -> &StorageLookup;
     fn entities(&self) -> &Entities;
-    fn borrow_archetype(&self, index: usize) -> &Archetype;
+    fn borrow_archetype(&self, index: usize) -> &Self::Archetype;
 }
 
 /// A helper to get two mutable borrows from the same slice.
