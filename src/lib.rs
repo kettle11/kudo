@@ -1,4 +1,5 @@
 mod archetype;
+mod cloneable_world;
 mod component_bundle;
 mod entities;
 mod error;
@@ -9,9 +10,9 @@ mod queries;
 mod world;
 
 use archetype::*;
-use entities::*;
-
+pub use cloneable_world::*;
 pub use component_bundle::*;
+use entities::*;
 pub use error::*;
 pub use function_system::*;
 pub use hierarchy::*;
@@ -30,8 +31,5 @@ use storage_lookup::*;
 // pub use scheduler::*;
 //
 // mod scheduler1;
-
-pub trait ComponentTrait: Send + Sync + 'static {}
-impl<T: Send + Sync + 'static> ComponentTrait for T {}
 
 mod tests;

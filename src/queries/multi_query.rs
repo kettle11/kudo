@@ -1,10 +1,5 @@
 use super::*;
-use crate::{
-    archetype::Archetype,
-    iterators::*,
-    storage_lookup::{Filter, FilterType},
-    Entity,
-};
+use crate::*;
 
 use std::any::Any;
 
@@ -155,14 +150,14 @@ macro_rules! query_impl{
 
         }
 
-        impl<'a, $($name: QueryParameter),*> QueryTrait<'a> for Query<'_, ($($name,)*)> {
+        impl<'a, WORLD: WorldTrait, $($name: QueryParameter),*> QueryTrait<'a, WORLD> for Query<'_, ($($name,)*)> {
             type Result = Option<Query<'a, ($($name,)*)>>;
 
             #[allow(non_snake_case)]
-            fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+            fn get_query(world: &'a WORLD, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
                 let mut archetype_borrows = Vec::with_capacity(query_info.archetypes.len());
                 for archetype_info in &query_info.archetypes {
-                    let archetype = &world.archetypes[archetype_info.archetype_index];
+                    let archetype = world.borrow_archetype(archetype_info.archetype_index);
                     let [$($name,)*] = archetype_info.channels;
 
                     archetype_borrows.push(ArchetypeBorrow {
@@ -173,21 +168,21 @@ macro_rules! query_impl{
                         entities: archetype.entities.read().unwrap(),
                     })
                 }
-                Ok(Some(Query { entities: &world.entities, archetype_borrows }))
+                Ok(Some(Query { entities: world.entities(), archetype_borrows }))
             }
         }
 
         // It almost seems like there might be a way to make this more generic.
         // I think these implementations could be made totally generic by making QueryParameters
         // implement a way to get all type ids.
-        impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for Query<'a, ($($name,)*)> {
+        impl<'a, WORLD: WorldTrait, $($name: QueryParameter), *> GetQueryInfoTrait<WORLD> for Query<'a, ($($name,)*)> {
             type QueryInfo = QueryInfo<$count>;
-            fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
+            fn query_info(world: &WORLD) -> Result<Self::QueryInfo, Error> {
                 let type_ids: [Filter; $count] = [
                     $($name::filter()),*
                 ];
 
-                let mut archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
+                let mut archetypes = world.storage_lookup().get_matching_archetypes(&type_ids, &[]);
 
                 // Sort archetypes so that we can later binary search the archetypes when
                 // finding entities.
@@ -195,7 +190,7 @@ macro_rules! query_impl{
 
                 // Look up resource index.
                 for archetype_match in &mut archetypes {
-                    let archetype = &world.archetypes[archetype_match.archetype_index];
+                    let archetype = &world.borrow_archetype(archetype_match.archetype_index);
                     for (channel, resource_index) in archetype_match.channels.iter().zip(archetype_match.resource_indices.iter_mut()) {
                         *resource_index = channel.map(|channel| archetype.channels[channel].channel_id);
                     }

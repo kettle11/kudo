@@ -132,26 +132,3 @@ impl World {
         Ok(())
     }
 }
-
-// Pray that a cycle is never made.
-// In the future kudo should be amended to allow a mutable query to be downgraded to an immutable query.
-// That would allow this to accept &Query<(&HierarchyNode,)> instead.
-// This is far too messy to pass in a generic query that implements GetComponent.
-pub fn iterate_descendents<'a, T: QueryParameters>(
-    query: &Query<'a, T>, //&Query<(&mut HierarchyNode,)>,
-    entity: Entity,
-    function: &mut impl FnMut(Entity),
-) where
-    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent,
-{
-    function(entity);
-
-    if let Some(node) = query.get_component::<HierarchyNode>(entity) {
-        if let Some(child) = node.last_child {
-            iterate_descendents(query, child, function);
-        }
-        if let Some(previous_sibling) = node.previous_sibling {
-            iterate_descendents(query, previous_sibling, function);
-        }
-    }
-}

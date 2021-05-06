@@ -2,11 +2,18 @@ use std::{any::TypeId, collections::HashMap};
 
 use crate::*;
 
-pub struct World {
+pub trait ComponentTrait: Send + Sync + 'static {}
+impl<T: Send + Sync + 'static> ComponentTrait for T {}
+
+pub struct WorldInner {
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
-    pub(crate) cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
+}
+
+pub struct World {
+    pub(crate) inner: WorldInner,
+    cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
 }
 
 pub(crate) trait ClonerTrait: Send + Sync {
@@ -43,15 +50,6 @@ pub struct EntityLocation {
 }
 
 impl World {
-    pub fn new() -> Self {
-        Self {
-            archetypes: Vec::new(),
-            entities: Entities::new(),
-            storage_lookup: StorageLookup::new(),
-            cloners: HashMap::new(),
-        }
-    }
-
     pub fn register_clone_type<T: Clone + 'static>(&mut self) {
         self.cloners.insert(
             TypeId::of::<T>(),
@@ -60,28 +58,6 @@ impl World {
             }),
         );
     }
-
-    /// Clone components from one Entity into another existing Entity.
-    /// For now this only supports cloning components into empty `Entity`s
-    /// and will panic if the target `Entity` has any components.
-    /*
-    pub fn clone_components_into(&mut self, from: Entity, to: Entity) -> Option<()> {
-        // Need to calculate a new TypeId.
-        let from_entity_location = self.entities.get_location(from)??;
-        let to_entity_location = self.entities.get_location(to)?;
-
-        // For now this only supports cloning components into empty `Entity`s
-        assert!(to_entity_location.is_none());
-
-        let mut types: Vec<TypeId> = self.archetypes[from_entity_location.archetype_index]
-            .type_ids()
-            .clone();
-        types.extend(self.archetypes[to_entity_location.archetype_index].type_ids());
-
-        // Then add components from the old entity to the new one.
-        Some(())
-    }
-    */
 
     fn clone_hierarchy(
         &mut self,
@@ -121,9 +97,9 @@ impl World {
     }
 
     fn clone_entity_inner(&mut self, entity: Entity) -> Option<Entity> {
-        let entity_location = self.entities.get_location(entity)??;
+        let entity_location = self.inner.entities.get_location(entity)??;
 
-        let archetype = &mut self.archetypes[entity_location.archetype_index];
+        let archetype = &mut self.inner.archetypes[entity_location.archetype_index];
         let mut cloners = Vec::with_capacity(archetype.channels.len());
 
         for (i, channel) in archetype.channels.iter().enumerate() {
@@ -134,28 +110,15 @@ impl World {
             cloner.clone_within(entity_location.index_within_archetype, channel, archetype)
         }
 
-        let new_entity = self.entities.new_entity_handle();
+        let new_entity = self.inner.entities.new_entity_handle();
         let index_within_archetype = archetype.entities.get_mut().unwrap().len();
         archetype.entities.get_mut().unwrap().push(new_entity);
 
-        *self.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
+        *self.inner.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
             archetype_index: entity_location.archetype_index,
             index_within_archetype,
         });
         Some(new_entity)
-    }
-
-    /// Clones an `Entity` and returns a new `Entity`.
-    /// For now this will return `None` if any components can't be cloned.
-    /// If this Entity has child `Entity`s they will be recursively cloned as well.
-    pub fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
-        if self.get_component_mut::<HierarchyNode>(entity).is_some() {
-            // Hierarchies need special care when cloning
-            // because they will also clone child Entity's
-            self.clone_hierarchy(entity, None, None)
-        } else {
-            self.clone_entity_inner(entity)
-        }
     }
 
     /*/
@@ -168,16 +131,103 @@ impl World {
     }*/
 
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
-        component_bundle.spawn_in_world(self)
+        component_bundle.spawn_in_world(&mut self.inner)
     }
 
-    pub fn reserve_entity(&self) -> Entity {
+    /// Adds a component to an Entity
+    /// If the Entity does not exist, this returns None.
+    /// If a component of the same type is already attached to the Entity, the component will be replaced.s
+    pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
+        self.inner.add_component(entity, component)
+    }
+
+    pub fn query<'world_borrow, T: QueryParameters>(
+        &'world_borrow self,
+    ) -> Result<
+        <<Query<'world_borrow, T> as QueryTrait<'world_borrow, Self>>::Result as GetQueryDirect>::Arg,
+        Error,
+    >
+    where
+        Query<'world_borrow, T>: QueryTrait<'world_borrow, Self>,
+        <Query<'world_borrow, T> as QueryTrait<'world_borrow, Self>>::Result: GetQueryDirect,
+    {
+        let query_info = <Query<'world_borrow, T> as GetQueryInfoTrait<Self>>::query_info(self)?;
+        let result = <Query<'world_borrow, T>>::get_query(self, &query_info)?;
+        Ok(result.get_query_direct())
+    }
+}
+
+impl WorldTrait for World {
+    fn new() -> Self {
+        Self {
+            inner: WorldInner::new(),
+            cloners: HashMap::new(),
+        }
+    }
+
+    /// Clones an `Entity` and returns a new `Entity`.
+    /// For now this will return `None` if any components can't be cloned.
+    /// If this Entity has child `Entity`s they will be recursively cloned as well.
+    fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
+        if self.get_component_mut::<HierarchyNode>(entity).is_some() {
+            // Hierarchies need special care when cloning
+            // because they will also clone child Entity's
+            self.clone_hierarchy(entity, None, None)
+        } else {
+            self.clone_entity_inner(entity)
+        }
+    }
+
+    fn reserve_entity(&self) -> Entity {
+        self.inner.reserve_entity()
+    }
+
+    /// Remove an entity and all its components from the world.
+    /// An error is returned if the entity does not exist.
+    fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
+        self.inner.despawn(entity)
+    }
+
+    fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
+        self.inner.remove_component(entity)
+    }
+
+    /// This will return None if the `Entity` does not exist or the `Entity` does not have the component.
+    fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
+        self.inner.get_component_mut(entity)
+    }
+}
+
+impl WorldPrivate for World {
+    fn storage_lookup(&self) -> &StorageLookup {
+        self.inner.storage_lookup()
+    }
+
+    fn entities(&self) -> &Entities {
+        self.inner.entities()
+    }
+
+    fn borrow_archetype(&self, index: usize) -> &Archetype {
+        self.inner.borrow_archetype(index)
+    }
+}
+
+impl WorldInner {
+    pub(crate) fn new() -> Self {
+        Self {
+            archetypes: Vec::new(),
+            entities: Entities::new(),
+            storage_lookup: StorageLookup::new(),
+        }
+    }
+
+    pub(crate) fn reserve_entity(&self) -> Entity {
         self.entities.reserve_entity()
     }
 
     /// Remove an entity and all its components from the world.
     /// An error is returned if the entity does not exist.
-    pub fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
+    pub(crate) fn despawn(&mut self, entity: Entity) -> Result<(), ()> {
         let entity_location = self.entities.free_entity(entity)?;
         if let Some(entity_location) = entity_location {
             let archetype = &mut self.archetypes[entity_location.archetype_index];
@@ -204,10 +254,121 @@ impl World {
         Ok(())
     }
 
-    /// Adds a component to an Entity
-    /// If the Entity does not exist, this returns None.
-    /// If a component of the same type is already attached to the Entity, the component will be replaced.s
-    pub fn add_component<T: ComponentTrait>(&mut self, entity: Entity, component: T) -> Option<()> {
+    pub(crate) fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
+        let entity_location = self.entities.get_location(entity)??;
+        let old_archetype_index = entity_location.archetype_index;
+        let mut type_ids = self.archetypes[old_archetype_index].type_ids();
+        let removing_component_id = TypeId::of::<T>();
+
+        let remove_channel_index = match type_ids.binary_search(&removing_component_id) {
+            Ok(index) => index,
+            Err(_) => None?, // Entity does not have this component
+        };
+
+        type_ids.remove(remove_channel_index);
+        let new_archetype_index = match self.storage_lookup.get_archetype_with_components(&type_ids)
+        {
+            Some(index) => index,
+            None => {
+                // Create a new archetype with one additional component.
+                let mut new_archetype = Archetype::new();
+                let mut i = 0;
+                for c in self.archetypes[old_archetype_index].channels.iter() {
+                    // Skip the channel we're removing.
+                    if i != remove_channel_index {
+                        new_archetype.push_channel(c.new_same_type());
+                    }
+                    i += 1;
+                }
+
+                let new_archetype_index = self.archetypes.len();
+                self.archetypes.push(new_archetype);
+                self.storage_lookup
+                    .new_archetype(new_archetype_index, &type_ids);
+                new_archetype_index
+            }
+        };
+
+        let (old_archetype, new_archetype) = index_mut_twice(
+            &mut self.archetypes,
+            old_archetype_index,
+            new_archetype_index,
+        );
+
+        // Migrate components from old archetype
+        let mut i = 0;
+        for c in new_archetype.channels.iter_mut() {
+            if i != remove_channel_index {
+                old_archetype.channels[i]
+                    .component_channel
+                    .migrate_component(
+                        entity_location.index_within_archetype,
+                        &mut *c.component_channel,
+                    )
+            }
+            i += 1;
+        }
+
+        // `migrate_component` uses `swap_remove` internally, so another Entity's location
+        // is swapped and need updating.
+        let swapped_entity_index = old_archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .last()
+            .unwrap()
+            .index;
+
+        {
+            // Update the location of the entity
+            let location = self.entities.get_at_index_mut(entity.index);
+            *location = Some(EntityLocation {
+                archetype_index: new_archetype_index,
+                index_within_archetype: new_archetype.entities.get_mut().unwrap().len(),
+            });
+
+            // Update the location of the swapped entity.
+            let swapped_entity_location = self
+                .entities
+                .get_at_index_mut(swapped_entity_index)
+                .as_mut()
+                .unwrap();
+            swapped_entity_location.index_within_archetype = entity_location.index_within_archetype;
+        }
+
+        old_archetype
+            .entities
+            .get_mut()
+            .unwrap()
+            .swap_remove(entity_location.index_within_archetype);
+        new_archetype.entities.get_mut().unwrap().push(entity);
+
+        Some(
+            old_archetype
+                .get_channel_mut::<T>(remove_channel_index)
+                .swap_remove(entity_location.index_within_archetype),
+        )
+    }
+
+    /// This will return None if the `Entity` does not exist or the `Entity` does not have the component.
+    pub(crate) fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
+        let entity_location = self
+            .entities
+            .get_location(entity)
+            .flatten()
+            .ok_or(())
+            .ok()?;
+        let archetype = &mut self.archetypes[entity_location.archetype_index as usize];
+        archetype
+            .get_component_mut(entity_location.index_within_archetype)
+            .ok()
+    }
+
+    pub(crate) fn add_component<T: ComponentTrait>(
+        &mut self,
+        entity: Entity,
+        component: T,
+    ) -> Option<()> {
         let old_entity_location = self.entities.get_location(entity)?;
 
         let (type_ids, insert_position) = if let Some(old_entity_location) = old_entity_location {
@@ -332,129 +493,34 @@ impl World {
 
         Some(())
     }
-
-    pub fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T> {
-        let entity_location = self.entities.get_location(entity)??;
-        let old_archetype_index = entity_location.archetype_index;
-        let mut type_ids = self.archetypes[old_archetype_index].type_ids();
-        let removing_component_id = TypeId::of::<T>();
-
-        let remove_channel_index = match type_ids.binary_search(&removing_component_id) {
-            Ok(index) => index,
-            Err(_) => None?, // Entity does not have this component
-        };
-
-        type_ids.remove(remove_channel_index);
-        let new_archetype_index = match self.storage_lookup.get_archetype_with_components(&type_ids)
-        {
-            Some(index) => index,
-            None => {
-                // Create a new archetype with one additional component.
-                let mut new_archetype = Archetype::new();
-                let mut i = 0;
-                for c in self.archetypes[old_archetype_index].channels.iter() {
-                    // Skip the channel we're removing.
-                    if i != remove_channel_index {
-                        new_archetype.push_channel(c.new_same_type());
-                    }
-                    i += 1;
-                }
-
-                let new_archetype_index = self.archetypes.len();
-                self.archetypes.push(new_archetype);
-                self.storage_lookup
-                    .new_archetype(new_archetype_index, &type_ids);
-                new_archetype_index
-            }
-        };
-
-        let (old_archetype, new_archetype) = index_mut_twice(
-            &mut self.archetypes,
-            old_archetype_index,
-            new_archetype_index,
-        );
-
-        // Migrate components from old archetype
-        let mut i = 0;
-        for c in new_archetype.channels.iter_mut() {
-            if i != remove_channel_index {
-                old_archetype.channels[i]
-                    .component_channel
-                    .migrate_component(
-                        entity_location.index_within_archetype,
-                        &mut *c.component_channel,
-                    )
-            }
-            i += 1;
-        }
-
-        // `migrate_component` uses `swap_remove` internally, so another Entity's location
-        // is swapped and need updating.
-        let swapped_entity_index = old_archetype
-            .entities
-            .get_mut()
-            .unwrap()
-            .last()
-            .unwrap()
-            .index;
-
-        {
-            // Update the location of the entity
-            let location = self.entities.get_at_index_mut(entity.index);
-            *location = Some(EntityLocation {
-                archetype_index: new_archetype_index,
-                index_within_archetype: new_archetype.entities.get_mut().unwrap().len(),
-            });
-
-            // Update the location of the swapped entity.
-            let swapped_entity_location = self
-                .entities
-                .get_at_index_mut(swapped_entity_index)
-                .as_mut()
-                .unwrap();
-            swapped_entity_location.index_within_archetype = entity_location.index_within_archetype;
-        }
-
-        old_archetype
-            .entities
-            .get_mut()
-            .unwrap()
-            .swap_remove(entity_location.index_within_archetype);
-        new_archetype.entities.get_mut().unwrap().push(entity);
-
-        Some(
-            old_archetype
-                .get_channel_mut::<T>(remove_channel_index)
-                .swap_remove(entity_location.index_within_archetype),
-        )
+}
+impl WorldPrivate for WorldInner {
+    fn storage_lookup(&self) -> &StorageLookup {
+        &self.storage_lookup
     }
 
-    pub fn query<'world_borrow, T: QueryParameters>(
-        &'world_borrow self,
-    ) -> Result<
-        <<Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result as GetQueryDirect>::Arg,
-        Error,
-    >
-    where
-        Query<'world_borrow, T>: QueryTrait<'world_borrow>,
-        <Query<'world_borrow, T> as QueryTrait<'world_borrow>>::Result: GetQueryDirect,
-    {
-        let query_info = <Query<'world_borrow, T> as GetQueryInfoTrait>::query_info(self)?;
-        let result = <Query<'world_borrow, T>>::get_query(self, &query_info)?;
-        Ok(result.get_query_direct())
+    fn entities(&self) -> &Entities {
+        &self.entities
     }
 
-    /// This will return None if the `Entity` does not exist or the `Entity` does not have the component.
-    pub fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
-        let entity_location = self
-            .entities
-            .get_location(entity)
-            .flatten()
-            .ok_or(())
-            .ok()?;
-        let archetype = &mut self.archetypes[entity_location.archetype_index as usize];
-        archetype.get_component_mut(entity_location.index_within_archetype)
+    fn borrow_archetype(&self, index: usize) -> &Archetype {
+        &self.archetypes[index]
     }
+}
+
+pub trait WorldTrait: WorldPrivate {
+    fn new() -> Self;
+    fn clone_entity(&mut self, entity: Entity) -> Option<Entity>;
+    fn despawn(&mut self, entity: Entity) -> Result<(), ()>;
+    fn reserve_entity(&self) -> Entity;
+    fn remove_component<T: 'static>(&mut self, entity: Entity) -> Option<T>;
+    fn get_component_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T>;
+}
+
+pub trait WorldPrivate {
+    fn storage_lookup(&self) -> &StorageLookup;
+    fn entities(&self) -> &Entities;
+    fn borrow_archetype(&self, index: usize) -> &Archetype;
 }
 
 /// A helper to get two mutable borrows from the same slice.

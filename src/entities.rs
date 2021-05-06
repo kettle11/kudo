@@ -27,7 +27,7 @@ impl Inner {
     }
 }
 
-pub(crate) struct Entities {
+pub struct Entities {
     // This isn't great, but it's a quick way to make spawning entities thread safe.
     // However this might result in lots of contention, but for now it's probably fine.
     inner: Mutex<Inner>,

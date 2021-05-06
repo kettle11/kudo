@@ -4,7 +4,7 @@
 //! a system with that argument tries to run
 
 use super::*;
-use crate::storage_lookup::{Filter, FilterType};
+use crate::*;
 use std::{
     any::TypeId,
     sync::{RwLockReadGuard, RwLockWriteGuard},
@@ -33,13 +33,18 @@ impl<'a> QueryInfoTrait for SingleQueryInfo {
     }
 }
 
-fn get_query_info<T: 'static>(world: &World, write: bool) -> Result<SingleQueryInfo, Error> {
+fn get_query_info<WORLD: WorldTrait, T: 'static>(
+    world: &WORLD,
+    write: bool,
+) -> Result<SingleQueryInfo, Error> {
     let type_ids = [Filter {
         filter_type: FilterType::With,
         type_id: TypeId::of::<T>(),
     }];
     // This allocation could probably be avoided in the future.
-    let archetypes = world.storage_lookup.get_matching_archetypes(&type_ids, &[]);
+    let archetypes = world
+        .storage_lookup()
+        .get_matching_archetypes(&type_ids, &[]);
 
     let (archetype_index, channel_index, resource_index) = archetypes.iter().next().map_or_else(
         || Err(Error::MissingComponent(std::any::type_name::<T>())),
@@ -61,35 +66,37 @@ fn get_query_info<T: 'static>(world: &World, write: bool) -> Result<SingleQueryI
     })
 }
 
-impl<T: 'static> GetQueryInfoTrait for &T {
+impl<T: 'static, WORLD: WorldTrait> GetQueryInfoTrait<WORLD> for &T {
     type QueryInfo = SingleQueryInfo;
-    fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
-        get_query_info::<T>(world, false)
+    fn query_info(world: &WORLD) -> Result<Self::QueryInfo, Error> {
+        get_query_info::<WORLD, T>(world, false)
     }
 }
 
-impl<'a, T: 'static> QueryTrait<'a> for &T {
+impl<'a, WORLD: WorldTrait, T: 'static> QueryTrait<'a, WORLD> for &T {
     type Result = RwLockReadGuard<'a, Vec<T>>;
 
-    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
-        let borrow = world.archetypes[query_info.archetype_index]
+    fn get_query(world: &'a WORLD, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+        let borrow = world
+            .borrow_archetype(query_info.archetype_index)
             .borrow_channel::<T>(query_info.channel_index)?;
         Ok(borrow)
     }
 }
 
-impl<T: 'static> GetQueryInfoTrait for &mut T {
+impl<WORLD: WorldTrait, T: 'static> GetQueryInfoTrait<WORLD> for &mut T {
     type QueryInfo = SingleQueryInfo;
-    fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
-        get_query_info::<T>(world, true)
+    fn query_info(world: &WORLD) -> Result<Self::QueryInfo, Error> {
+        get_query_info::<WORLD, T>(world, true)
     }
 }
 
-impl<'a, T: 'static> QueryTrait<'a> for &mut T {
+impl<'a, WORLD: WorldTrait, T: 'static> QueryTrait<'a, WORLD> for &mut T {
     type Result = RwLockWriteGuard<'a, Vec<T>>;
 
-    fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
-        let borrow = world.archetypes[query_info.archetype_index]
+    fn get_query(world: &'a WORLD, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+        let borrow = world
+            .borrow_archetype(query_info.archetype_index)
             .borrow_channel_mut::<T>(query_info.channel_index)?;
         Ok(borrow)
     }
