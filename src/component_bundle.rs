@@ -4,8 +4,8 @@ use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
 pub trait ComponentBundle: ComponentTrait {
     /// For now this only works correctly for empty entities.
-    fn add_to_entity(self, world: &mut WorldInner, entity: Entity);
-    fn spawn_in_world(self, world: &mut WorldInner) -> Entity;
+    fn add_to_entity(self, world: &mut ArchetypeWorld, entity: Entity);
+    fn spawn_in_world(self, world: &mut ArchetypeWorld) -> Entity;
 }
 
 // This macro is a little funky because it needs to reorder insert based on type ids.
@@ -16,7 +16,7 @@ macro_rules! component_bundle_impl {
         impl< $($name: ComponentTrait),*> ComponentBundle for ($($name,)*) {
 
             /// For now this only works if the Entity has no components.
-            fn add_to_entity(self, world: &mut WorldInner, entity: Entity) {
+            fn add_to_entity(self, world: &mut ArchetypeWorld, entity: Entity) {
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
 
                 debug_assert!(
@@ -67,7 +67,7 @@ macro_rules! component_bundle_impl {
                 });
             }
 
-            fn spawn_in_world(self, world: &mut WorldInner) -> Entity {
+            fn spawn_in_world(self, world: &mut ArchetypeWorld) -> Entity {
                 let new_entity = world.entities.new_entity_handle();
                 self.add_to_entity(world, new_entity.clone());
                 new_entity

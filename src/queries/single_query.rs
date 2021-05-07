@@ -97,7 +97,7 @@ impl<'a, WORLD: WorldTrait, T: 'static> QueryTrait<'a, WORLD> for &mut T {
     fn get_query(world: &'a WORLD, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
         let borrow = world
             .borrow_archetype(query_info.archetype_index)
-            .borrow_channel_mut::<T>(query_info.channel_index)?;
+            .channel_mut::<T>(query_info.channel_index)?;
         Ok(borrow)
     }
 }

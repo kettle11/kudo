@@ -130,7 +130,7 @@ impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
         archetype: &'a impl ArchetypeTrait,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
-        archetype.borrow_channel_mut(channel_index.unwrap())
+        archetype.channel_mut(channel_index.unwrap())
     }
 }
 

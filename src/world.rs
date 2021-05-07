@@ -1,23 +1,28 @@
-use std::{any::TypeId, collections::HashMap, ops::Add};
+use std::{any::TypeId, collections::HashMap};
 
 use crate::*;
 
 pub trait ComponentTrait: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ComponentTrait for T {}
 
-pub struct WorldInner {
-    pub(crate) archetypes: Vec<Archetype>,
+pub struct ArchetypeWorld {
+    pub(crate) archetypes: Vec<Archetype<ComponentChannelStorage>>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
 }
 
 pub struct World {
-    pub inner: WorldInner,
+    pub inner: ArchetypeWorld,
     cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
 }
 
 pub(crate) trait ClonerTrait: Send + Sync {
-    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype);
+    fn clone_within(
+        &self,
+        index: usize,
+        channel: usize,
+        archetype: &mut Archetype<ComponentChannelStorage>,
+    );
 }
 
 struct Cloner<T> {
@@ -25,7 +30,12 @@ struct Cloner<T> {
 }
 
 impl<T: Clone + 'static> ClonerTrait for Cloner<T> {
-    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype) {
+    fn clone_within(
+        &self,
+        index: usize,
+        channel: usize,
+        archetype: &mut Archetype<ComponentChannelStorage>,
+    ) {
         let channel = archetype.get_channel_mut::<T>(channel);
         channel.push(channel[index].clone())
     }
@@ -152,9 +162,11 @@ impl World {
         todo!()
     }*/
 
+    /*
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(&mut self.inner)
     }
+    */
 
     /// Adds a component to an Entity
     /// If the Entity does not exist, this returns None.
@@ -164,14 +176,16 @@ impl World {
         entity: &Entity,
         component: T,
     ) -> Option<()> {
-        // `add_component` is split into two parts. A minimal smaller part here does a small amount of work.
+        // `add_component` is split into two parts. The part here does a small amount of work.
         // This is structured this way so that `World` and `CloneableWorld` can have slightly different implementations.
         let type_id = TypeId::of::<T>();
         let add_info = self.inner.add_component_inner(entity, type_id).ok()?;
         let new_archetype = &mut self.inner.archetypes[add_info.archetype_index];
         if add_info.new_archetype {
             // If a new `Archetype` is constructed insert its new channel.
-            new_archetype.insert_new_channel::<T>(add_info.channel_index);
+            new_archetype
+                .channels
+                .insert(add_info.channel_index, ComponentChannelStorage::new::<T>());
         }
 
         if let Some(replace_index) = add_info.replace_index {
@@ -203,7 +217,7 @@ impl World {
 impl WorldTrait for World {
     fn new() -> Self {
         Self {
-            inner: WorldInner::new(),
+            inner: ArchetypeWorld::new(),
             cloners: HashMap::new(),
         }
     }
@@ -242,7 +256,7 @@ impl WorldTrait for World {
 }
 
 impl WorldPrivate for World {
-    type Archetype = <WorldInner as WorldPrivate>::Archetype;
+    type Archetype = <ArchetypeWorld as WorldPrivate>::Archetype;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }
@@ -251,20 +265,20 @@ impl WorldPrivate for World {
         self.inner.entities()
     }
 
-    fn borrow_archetype(&self, index: usize) -> &Archetype {
+    fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
         self.inner.borrow_archetype(index)
     }
 }
 
 pub struct AddInfo {
-    archetype_index: usize,
+    pub(crate) archetype_index: usize,
     /// If an entity already has a component replace its component at this index.
-    replace_index: Option<usize>,
-    channel_index: usize,
-    new_archetype: bool,
+    pub(crate) replace_index: Option<usize>,
+    pub(crate) channel_index: usize,
+    pub(crate) new_archetype: bool,
 }
 
-impl WorldInner {
+impl ArchetypeWorld {
     pub(crate) fn new() -> Self {
         Self {
             archetypes: Vec::new(),
@@ -273,7 +287,11 @@ impl WorldInner {
         }
     }
 
-    pub(crate) fn push_archetype(&mut self, archetype: Archetype, type_ids: &[TypeId]) -> usize {
+    pub(crate) fn push_archetype(
+        &mut self,
+        archetype: Archetype<ComponentChannelStorage>,
+        type_ids: &[TypeId],
+    ) -> usize {
         let new_archetype_index = self.archetypes.len();
         self.archetypes.push(archetype);
         self.storage_lookup
@@ -531,8 +549,8 @@ impl WorldInner {
     }
 }
 
-impl WorldPrivate for WorldInner {
-    type Archetype = Archetype;
+impl WorldPrivate for ArchetypeWorld {
+    type Archetype = Archetype<ComponentChannelStorage>;
 
     fn storage_lookup(&self) -> &StorageLookup {
         &self.storage_lookup
@@ -542,7 +560,7 @@ impl WorldPrivate for WorldInner {
         &self.entities
     }
 
-    fn borrow_archetype(&self, index: usize) -> &Archetype {
+    fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
         &self.archetypes[index]
     }
 }

@@ -1,12 +1,14 @@
+use std::any::TypeId;
+
 use crate::*;
 pub struct CloneableWorld {
-    pub(crate) inner: WorldInner,
+    pub(crate) inner: ArchetypeWorld,
 }
 
 impl WorldTrait for CloneableWorld {
     fn new() -> Self {
         Self {
-            inner: WorldInner::new(),
+            inner: ArchetypeWorld::new(),
         }
     }
 
@@ -37,15 +39,47 @@ impl WorldTrait for CloneableWorld {
 }
 
 impl CloneableWorld {
+    /*
     pub fn spawn<CB: ComponentBundle + WorldClone>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(&mut self.inner)
     }
+    */
 
     /// Adds this CloneableWorld to another world.
     pub fn add_to_world(self, entity: &Entity, world: impl WorldTrait) {
         // This needs to iterate through all of the `Entity`'s components and clone
         // them into the new world.
         todo!()
+    }
+
+    /// Adds a component to an Entity
+    /// If the Entity does not exist, this returns None.
+    /// If a component of the same type is already attached to the Entity, the component will be replaced.s
+    pub fn add_component<T: ComponentTrait>(
+        &mut self,
+        entity: &Entity,
+        component: T,
+    ) -> Option<()> {
+        // `add_component` is split into two parts. The part here does a small amount of work.
+        // This is structured this way so that `World` and `CloneableWorld` can have slightly different implementations.
+        let type_id = TypeId::of::<T>();
+        let add_info = self.inner.add_component_inner(entity, type_id).ok()?;
+        let new_archetype = &mut self.inner.archetypes[add_info.archetype_index];
+        if add_info.new_archetype {
+            // If a new `Archetype` is constructed insert its new channel.
+            new_archetype
+                .channels
+                .insert(add_info.channel_index, ComponentChannelStorage::new::<T>());
+        }
+
+        if let Some(replace_index) = add_info.replace_index {
+            new_archetype.get_channel_mut(add_info.channel_index)[replace_index] = component;
+        } else {
+            new_archetype
+                .get_channel_mut(add_info.channel_index)
+                .push(component);
+        }
+        Some(())
     }
 }
 
@@ -69,7 +103,7 @@ impl WorldClone for Entity {
 }
 
 impl WorldPrivate for CloneableWorld {
-    type Archetype = Archetype;
+    type Archetype = Archetype<ComponentChannelStorage>;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }
@@ -78,7 +112,7 @@ impl WorldPrivate for CloneableWorld {
         self.inner.entities()
     }
 
-    fn borrow_archetype(&self, index: usize) -> &Archetype {
+    fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
         self.inner.borrow_archetype(index)
     }
 }
