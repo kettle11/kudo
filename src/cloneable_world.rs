@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use crate::*;
 pub struct CloneableWorld {
-    pub(crate) inner: ArchetypeWorld,
+    pub(crate) inner: ArchetypeWorld<ComponentChannelStorageClone>,
 }
 
 impl WorldTrait for CloneableWorld {
@@ -55,7 +55,7 @@ impl CloneableWorld {
     /// Adds a component to an Entity
     /// If the Entity does not exist, this returns None.
     /// If a component of the same type is already attached to the Entity, the component will be replaced.s
-    pub fn add_component<T: ComponentTrait>(
+    pub fn add_component<T: ComponentTrait + WorldClone>(
         &mut self,
         entity: &Entity,
         component: T,
@@ -67,9 +67,10 @@ impl CloneableWorld {
         let new_archetype = &mut self.inner.archetypes[add_info.archetype_index];
         if add_info.new_archetype {
             // If a new `Archetype` is constructed insert its new channel.
-            new_archetype
-                .channels
-                .insert(add_info.channel_index, ComponentChannelStorage::new::<T>());
+            new_archetype.channels.insert(
+                add_info.channel_index,
+                ComponentChannelStorageClone::new::<T>(),
+            );
         }
 
         if let Some(replace_index) = add_info.replace_index {
@@ -103,7 +104,7 @@ impl WorldClone for Entity {
 }
 
 impl WorldPrivate for CloneableWorld {
-    type Archetype = Archetype<ComponentChannelStorage>;
+    type Archetype = Archetype<ComponentChannelStorageClone>;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }

@@ -5,14 +5,14 @@ use crate::*;
 pub trait ComponentTrait: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ComponentTrait for T {}
 
-pub struct ArchetypeWorld {
-    pub(crate) archetypes: Vec<Archetype<ComponentChannelStorage>>,
+pub struct ArchetypeWorld<ArchetypeStorage: ComponentStorageTrait + 'static> {
+    pub(crate) archetypes: Vec<Archetype<ArchetypeStorage>>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
 }
 
 pub struct World {
-    pub inner: ArchetypeWorld,
+    pub inner: ArchetypeWorld<ComponentChannelStorage>,
     cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
 }
 
@@ -256,7 +256,7 @@ impl WorldTrait for World {
 }
 
 impl WorldPrivate for World {
-    type Archetype = <ArchetypeWorld as WorldPrivate>::Archetype;
+    type Archetype = <ArchetypeWorld<ComponentChannelStorage> as WorldPrivate>::Archetype;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }
@@ -278,7 +278,7 @@ pub struct AddInfo {
     pub(crate) new_archetype: bool,
 }
 
-impl ArchetypeWorld {
+impl<ArchetypeStorage: ComponentStorageTrait> ArchetypeWorld<ArchetypeStorage> {
     pub(crate) fn new() -> Self {
         Self {
             archetypes: Vec::new(),
@@ -289,7 +289,7 @@ impl ArchetypeWorld {
 
     pub(crate) fn push_archetype(
         &mut self,
-        archetype: Archetype<ComponentChannelStorage>,
+        archetype: Archetype<ArchetypeStorage>,
         type_ids: &[TypeId],
     ) -> usize {
         let new_archetype_index = self.archetypes.len();
@@ -487,7 +487,7 @@ impl ArchetypeWorld {
 
         while let Some(first) = &mut first_channel {
             if let Some(second) = &mut second_channel {
-                match first.type_id.cmp(&second.type_id) {
+                match first.type_id().cmp(&second.type_id()) {
                     std::cmp::Ordering::Less => {
                         first_channel = first_channel_iter.next();
                     }
@@ -495,9 +495,9 @@ impl ArchetypeWorld {
                         second_channel = second_channel_iter.next();
                     }
                     std::cmp::Ordering::Equal => {
-                        first.component_channel.migrate_component(
+                        first.channel_mut().migrate_component(
                             entity_index_within_archetype,
-                            &mut *second.component_channel,
+                            &mut *second.channel_mut(),
                         );
                         first_channel = first_channel_iter.next();
                         second_channel = second_channel_iter.next();
@@ -549,8 +549,8 @@ impl ArchetypeWorld {
     }
 }
 
-impl WorldPrivate for ArchetypeWorld {
-    type Archetype = Archetype<ComponentChannelStorage>;
+impl<ArchetypeStorage: ComponentStorageTrait> WorldPrivate for ArchetypeWorld<ArchetypeStorage> {
+    type Archetype = Archetype<ArchetypeStorage>;
 
     fn storage_lookup(&self) -> &StorageLookup {
         &self.storage_lookup

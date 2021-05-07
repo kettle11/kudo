@@ -184,7 +184,7 @@ impl ComponentChannelStorage {
     }
 }
 
-pub(crate) struct ComponentChannelStorageClone {
+pub struct ComponentChannelStorageClone {
     pub(crate) type_id: TypeId,
     pub(crate) channel_id: usize,
     component_channel: Box<dyn CloneComponentChannel>,
@@ -213,7 +213,7 @@ impl ComponentStorageTrait for ComponentChannelStorageClone {
 }
 
 impl ComponentChannelStorageClone {
-    fn new<T: ComponentTrait + WorldClone>() -> Self {
+    pub(crate) fn new<T: ComponentTrait + WorldClone>() -> Self {
         Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
