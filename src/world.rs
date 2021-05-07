@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap};
+use std::{any::TypeId, collections::HashMap, ops::Add};
 
 use crate::*;
 
@@ -164,15 +164,23 @@ impl World {
         entity: &Entity,
         component: T,
     ) -> Option<()> {
-        if let Some((new_archetype_index, channel_insert_index)) =
-            self.inner.add_component_inner(entity, component).ok()?
-        {
+        // `add_component` is split into two parts. A minimal smaller part here does a small amount of work.
+        // This is structured this way so that `World` and `CloneableWorld` can have slightly different implementations.
+        let type_id = TypeId::of::<T>();
+        let add_info = self.inner.add_component_inner(entity, type_id).ok()?;
+        let new_archetype = &mut self.inner.archetypes[add_info.archetype_index];
+        if add_info.new_archetype {
             // If a new `Archetype` is constructed insert its new channel.
-            // This is separated out from the other code because the behavior varies between `World` and `CloneableWorld`.
-            self.inner.archetypes[new_archetype_index]
-                .insert_new_channel::<T>(channel_insert_index);
+            new_archetype.insert_new_channel::<T>(add_info.channel_index);
         }
 
+        if let Some(replace_index) = add_info.replace_index {
+            new_archetype.get_channel_mut(add_info.channel_index)[replace_index] = component;
+        } else {
+            new_archetype
+                .get_channel_mut(add_info.channel_index)
+                .push(component);
+        }
         Some(())
     }
 
@@ -246,6 +254,14 @@ impl WorldPrivate for World {
     fn borrow_archetype(&self, index: usize) -> &Archetype {
         self.inner.borrow_archetype(index)
     }
+}
+
+pub struct AddInfo {
+    archetype_index: usize,
+    /// If an entity already has a component replace its component at this index.
+    replace_index: Option<usize>,
+    channel_index: usize,
+    new_archetype: bool,
 }
 
 impl WorldInner {
@@ -367,26 +383,26 @@ impl WorldInner {
             .ok()
     }
 
-    //
-    pub(crate) fn add_component_inner<T: ComponentTrait>(
+    pub(crate) fn add_component_inner(
         &mut self,
         entity: &Entity,
-        component: T,
-    ) -> Result<Option<(usize, usize)>, ()> {
+        new_component_id: TypeId,
+    ) -> Result<AddInfo, ()> {
         let old_entity_location = self.entities.get_location(entity).ok_or(())?;
 
         // If the `EntityLocation` is `None` then this `Entity` is reserved is not yet
         // in an Archetype.
         let (type_ids, insert_position) = if let Some(old_entity_location) = old_entity_location {
             let mut type_ids = self.archetypes[old_entity_location.archetype_index].type_ids();
-            let new_component_id = TypeId::of::<T>();
             let insert_position = match type_ids.binary_search(&new_component_id) {
                 Ok(i) => {
                     // If the component already exists, simply replace it with the new one.
-                    self.archetypes[old_entity_location.archetype_index]
-                        .borrow_channel_mut::<T>(i)
-                        .unwrap()[old_entity_location.index_within_archetype] = component;
-                    return Ok(None);
+                    return Ok(AddInfo {
+                        archetype_index: old_entity_location.archetype_index,
+                        channel_index: i,
+                        new_archetype: false,
+                        replace_index: Some(old_entity_location.index_within_archetype),
+                    });
                 }
                 Err(position) => {
                     type_ids.insert(position, new_component_id);
@@ -426,13 +442,12 @@ impl WorldInner {
             );
         }
 
-        // Insert the new component
-        let new_archetype = &mut self.archetypes[new_archetype_index];
-        new_archetype
-            .get_channel_mut(insert_position)
-            .push(component);
-
-        Ok(Some((new_archetype_index, insert_position)))
+        Ok(AddInfo {
+            archetype_index: new_archetype_index,
+            channel_index: insert_position,
+            replace_index: None,
+            new_archetype: true,
+        })
     }
 
     pub fn migrate_entity_between_archetypes(
