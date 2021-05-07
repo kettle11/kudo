@@ -248,6 +248,14 @@ impl WorldInner {
         }
     }
 
+    pub(crate) fn push_archetype(&mut self, archetype: Archetype, type_ids: &[TypeId]) -> usize {
+        let new_archetype_index = self.archetypes.len();
+        self.archetypes.push(archetype);
+        self.storage_lookup
+            .new_archetype(new_archetype_index, &type_ids);
+        new_archetype_index
+    }
+
     pub(crate) fn reserve_entity(&self) -> Entity {
         self.entities.reserve_entity()
     }
@@ -308,20 +316,17 @@ impl WorldInner {
             None => {
                 // Create a new archetype with one additional component.
                 let mut new_archetype = Archetype::new();
-                let mut i = 0;
-                for c in self.archetypes[old_archetype_index].channels.iter() {
+                for (i, c) in self.archetypes[old_archetype_index]
+                    .channels
+                    .iter()
+                    .enumerate()
+                {
                     // Skip the channel we're removing.
                     if i != remove_channel_index {
                         new_archetype.new_channel_same_type(c);
                     }
-                    i += 1;
                 }
-
-                let new_archetype_index = self.archetypes.len();
-                self.archetypes.push(new_archetype);
-                self.storage_lookup
-                    .new_archetype(new_archetype_index, &type_ids);
-                new_archetype_index
+                self.push_archetype(new_archetype, &type_ids)
             }
         };
 
@@ -398,12 +403,7 @@ impl WorldInner {
                 // Insert the new channel
                 new_archetype.insert_new_channel::<T>(insert_position);
 
-                let new_archetype_index = self.archetypes.len();
-                self.archetypes.push(new_archetype);
-                self.storage_lookup
-                    .new_archetype(new_archetype_index, &type_ids);
-
-                new_archetype_index
+                self.push_archetype(new_archetype, &type_ids)
             }
         };
 
@@ -416,8 +416,8 @@ impl WorldInner {
             );
         }
 
-        let new_archetype = &mut self.archetypes[new_archetype_index];
         // Insert the new component
+        let new_archetype = &mut self.archetypes[new_archetype_index];
         new_archetype
             .get_channel_mut(insert_position)
             .push(component);
