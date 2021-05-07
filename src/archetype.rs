@@ -24,6 +24,7 @@ pub trait ArchetypeTrait {
     ) -> Result<RwLockWriteGuard<Vec<T>>, Error>;
     fn new_channel<T: Sync + Send + 'static>(&mut self);
     fn new_channel_same_type(&mut self, c: &ComponentChannelStorage);
+    fn channel_dyn(&mut self, index: usize) -> &mut dyn ComponentChannelTrait;
     fn sort_channels(&mut self);
     fn swap_remove(&mut self, index: usize);
     fn entities(&self) -> RwLockReadGuard<Vec<Entity>>;
@@ -73,6 +74,10 @@ impl ArchetypeTrait for Archetype {
             }
         }
         Err(())
+    }
+
+    fn channel_dyn(&mut self, index: usize) -> &mut dyn ComponentChannelTrait {
+        &mut *self.channels[index].component_channel
     }
 
     fn borrow_channel<T: 'static>(
@@ -126,14 +131,19 @@ impl ArchetypeTrait for Archetype {
 // This may be used later when scheduling.
 static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+trait ComponentStorageTrait {
+    fn new<T: ComponentTrait>() -> Self;
+    fn new_same_type(&self) -> Self;
+}
+
 pub struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
     pub(crate) channel_id: usize,
     pub(crate) component_channel: Box<dyn ComponentChannelTrait>,
 }
 
-impl ComponentChannelStorage {
-    pub fn new<T: ComponentTrait>() -> Self {
+impl ComponentStorageTrait for ComponentChannelStorage {
+    fn new<T: ComponentTrait>() -> Self {
         Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
@@ -141,7 +151,7 @@ impl ComponentChannelStorage {
         }
     }
 
-    pub fn new_same_type(&self) -> ComponentChannelStorage {
+    fn new_same_type(&self) -> ComponentChannelStorage {
         Self {
             type_id: self.type_id,
             component_channel: self.component_channel.new_same_type(),
@@ -156,8 +166,9 @@ pub(crate) struct ComponentChannelStorageClone {
     component_channel: Box<dyn CloneComponentChannel>,
 }
 
-impl ComponentChannelStorageClone {
-    pub fn new<T: ComponentTrait + Clone>() -> Self {
+/*
+impl ComponentStorageTrait for ComponentChannelStorageClone {
+    fn new<T: ComponentTrait + Clone>() -> Self {
         Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
@@ -165,7 +176,7 @@ impl ComponentChannelStorageClone {
         }
     }
 
-    pub fn new_same_type(&self) -> ComponentChannelStorageClone {
+    fn new_same_type(&self) -> ComponentChannelStorageClone {
         Self {
             type_id: self.type_id,
             component_channel: self.component_channel.new_same_type_clone(),
@@ -173,6 +184,7 @@ impl ComponentChannelStorageClone {
         }
     }
 }
+*/
 
 pub trait CloneComponentChannel: ComponentChannelTrait {
     fn clone_into(&mut self, into: &mut dyn ComponentChannelTrait, index: usize);
