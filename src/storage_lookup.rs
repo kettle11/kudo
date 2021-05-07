@@ -108,13 +108,10 @@ impl StorageLookup {
             });
 
             // If we don't have this component nothing can match the query.
-            match filter.filter_type {
-                FilterType::With => {
-                    if component_info.is_none() {
-                        return Vec::new();
-                    }
+            if let FilterType::With = filter.filter_type {
+                if component_info.is_none() {
+                    return Vec::new();
                 }
-                _ => {}
             }
         }
 
@@ -131,13 +128,10 @@ impl StorageLookup {
             });
 
             // If we don't have this component nothing can match the query.
-            match filter.filter_type {
-                FilterType::With => {
-                    if component_info.is_none() {
-                        return Vec::new();
-                    }
+            if let FilterType::With = filter.filter_type {
+                if component_info.is_none() {
+                    return Vec::new();
                 }
-                _ => {}
             }
         }
 
@@ -166,7 +160,7 @@ impl StorageLookup {
 
                 match inner_filter.filter.filter_type {
                     FilterType::With => {
-                        if !matches.is_some() {
+                        if matches.is_none() {
                             return false;
                         }
                         if let Some(component_archetype_info) = matches {

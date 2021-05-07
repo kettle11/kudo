@@ -112,7 +112,7 @@ where
 
         let exclusive = A::exclusive();
         Ok(SystemInfo {
-            borrows: a.borrows().into(),
+            borrows: a.borrows(),
             exclusive,
         })
     }

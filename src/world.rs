@@ -164,7 +164,16 @@ impl World {
         entity: &Entity,
         component: T,
     ) -> Option<()> {
-        self.inner.add_component(entity, component)
+        if let Some((new_archetype_index, channel_insert_index)) =
+            self.inner.add_component_inner(entity, component).ok()?
+        {
+            // If a new `Archetype` is constructed insert its new channel.
+            // This is separated out from the other code because the behavior varies between `World` and `CloneableWorld`.
+            self.inner.archetypes[new_archetype_index]
+                .insert_new_channel::<T>(channel_insert_index);
+        }
+
+        Some(())
     }
 
     pub fn query<'world_borrow, T: QueryParameters>(
@@ -358,12 +367,13 @@ impl WorldInner {
             .ok()
     }
 
-    pub(crate) fn add_component<T: ComponentTrait>(
+    //
+    pub(crate) fn add_component_inner<T: ComponentTrait>(
         &mut self,
         entity: &Entity,
         component: T,
-    ) -> Option<()> {
-        let old_entity_location = self.entities.get_location(entity)?;
+    ) -> Result<Option<(usize, usize)>, ()> {
+        let old_entity_location = self.entities.get_location(entity).ok_or(())?;
 
         // If the `EntityLocation` is `None` then this `Entity` is reserved is not yet
         // in an Archetype.
@@ -376,7 +386,7 @@ impl WorldInner {
                     self.archetypes[old_entity_location.archetype_index]
                         .borrow_channel_mut::<T>(i)
                         .unwrap()[old_entity_location.index_within_archetype] = component;
-                    return Some(());
+                    return Ok(None);
                 }
                 Err(position) => {
                     type_ids.insert(position, new_component_id);
@@ -400,8 +410,8 @@ impl WorldInner {
                         new_archetype.new_channel_same_type(c);
                     }
                 }
-                // Insert the new channel
-                new_archetype.insert_new_channel::<T>(insert_position);
+
+                // New channel insertion is deferred until later to allow variation between `CloneableWorld` and `World`.
 
                 self.push_archetype(new_archetype, &type_ids)
             }
@@ -422,7 +432,7 @@ impl WorldInner {
             .get_channel_mut(insert_position)
             .push(component);
 
-        Some(())
+        Ok(Some((new_archetype_index, insert_position)))
     }
 
     pub fn migrate_entity_between_archetypes(
@@ -442,27 +452,23 @@ impl WorldInner {
         let mut first_channel = first_channel_iter.next();
         let mut second_channel = second_channel_iter.next();
 
-        loop {
-            if let Some(first) = &mut first_channel {
-                if let Some(second) = &mut second_channel {
-                    match first.type_id.cmp(&second.type_id) {
-                        std::cmp::Ordering::Less => {
-                            first_channel = first_channel_iter.next();
-                        }
-                        std::cmp::Ordering::Greater => {
-                            second_channel = second_channel_iter.next();
-                        }
-                        std::cmp::Ordering::Equal => {
-                            first.component_channel.migrate_component(
-                                entity_index_within_archetype,
-                                &mut *second.component_channel,
-                            );
-                            first_channel = first_channel_iter.next();
-                            second_channel = second_channel_iter.next();
-                        }
+        while let Some(first) = &mut first_channel {
+            if let Some(second) = &mut second_channel {
+                match first.type_id.cmp(&second.type_id) {
+                    std::cmp::Ordering::Less => {
+                        first_channel = first_channel_iter.next();
                     }
-                } else {
-                    break;
+                    std::cmp::Ordering::Greater => {
+                        second_channel = second_channel_iter.next();
+                    }
+                    std::cmp::Ordering::Equal => {
+                        first.component_channel.migrate_component(
+                            entity_index_within_archetype,
+                            &mut *second.component_channel,
+                        );
+                        first_channel = first_channel_iter.next();
+                        second_channel = second_channel_iter.next();
+                    }
                 }
             } else {
                 break;

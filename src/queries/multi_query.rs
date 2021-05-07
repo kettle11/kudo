@@ -251,10 +251,8 @@ impl<'a, const CHANNELS: usize> QueryInfoTrait for QueryInfo<CHANNELS> {
                     if let Some(id) = id {
                         writes.push(*id);
                     }
-                } else {
-                    if let Some(id) = id {
-                        reads.push(*id);
-                    }
+                } else if let Some(id) = id {
+                    reads.push(*id);
                 }
             }
         }

@@ -98,13 +98,13 @@ impl ArchetypeTrait for Archetype {
         &self,
         channel_index: usize,
     ) -> Result<RwLockWriteGuard<Vec<T>>, Error> {
-        Ok(self.channels[channel_index]
+        self.channels[channel_index]
             .component_channel
             .to_any()
             .downcast_ref::<RwLock<Vec<T>>>()
             .unwrap()
             .try_write()
-            .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))?)
+            .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))
     }
 
     fn push_new_channel<T: Sync + Send + 'static>(&mut self) {

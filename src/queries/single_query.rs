@@ -46,7 +46,7 @@ fn get_query_info<WORLD: WorldTrait, T: 'static>(
         .storage_lookup()
         .get_matching_archetypes(&type_ids, &[]);
 
-    let (archetype_index, channel_index, resource_index) = archetypes.iter().next().map_or_else(
+    let (archetype_index, channel_index, resource_index) = archetypes.get(0).map_or_else(
         || Err(Error::MissingComponent(std::any::type_name::<T>())),
         |a| {
             Ok((
