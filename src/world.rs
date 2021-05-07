@@ -360,7 +360,8 @@ impl WorldInner {
     ) -> Option<()> {
         let old_entity_location = self.entities.get_location(entity)?;
 
-        // If the `EntityLocation` is `None` then this `Entity` does not yet have any components.
+        // If the `EntityLocation` is `None` then this `Entity` is reserved is not yet
+        // in an Archetype.
         let (type_ids, insert_position) = if let Some(old_entity_location) = old_entity_location {
             let mut type_ids = self.archetypes[old_entity_location.archetype_index].type_ids();
             let new_component_id = TypeId::of::<T>();
@@ -389,25 +390,13 @@ impl WorldInner {
             None => {
                 // Create a new archetype with one additional component.
                 let mut new_archetype = Archetype::new();
-                let mut i = 0;
-
-                if let Some(old_entity_location) = old_entity_location {
-                    for c in self.archetypes[old_entity_location.archetype_index]
-                        .channels
-                        .iter()
-                    {
-                        if i == insert_position {
-                            new_archetype.new_channel::<T>();
-                        }
+                if let Some(entity_location) = old_entity_location {
+                    for c in &self.archetypes[entity_location.archetype_index].channels {
                         new_archetype.new_channel_same_type(c);
-                        i += 1;
                     }
                 }
-
-                // If the insert position is after everything, insert here.
-                if i == insert_position {
-                    new_archetype.new_channel::<T>();
-                }
+                // Insert the new channel
+                new_archetype.insert_new_channel::<T>(insert_position);
 
                 let new_archetype_index = self.archetypes.len();
                 self.archetypes.push(new_archetype);

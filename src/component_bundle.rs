@@ -33,7 +33,7 @@ macro_rules! component_bundle_impl {
                     None => {
                         let mut new_archetype = Archetype::new();
                         // Insert each channel
-                        $(new_archetype.new_channel::<$name>();)*
+                        $(new_archetype.push_new_channel::<$name>();)*
                         // Sort the channels
                         new_archetype.sort_channels();
 

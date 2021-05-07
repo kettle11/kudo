@@ -22,7 +22,8 @@ pub trait ArchetypeTrait {
         &self,
         channel_index: usize,
     ) -> Result<RwLockWriteGuard<Vec<T>>, Error>;
-    fn new_channel<T: Sync + Send + 'static>(&mut self);
+    fn push_new_channel<T: Sync + Send + 'static>(&mut self);
+    fn insert_new_channel<T: Sync + Send + 'static>(&mut self, index: usize);
     fn new_channel_same_type(&mut self, c: &ComponentChannelStorage);
     fn channel_dyn(&mut self, index: usize) -> &mut dyn ComponentChannelTrait;
     fn sort_channels(&mut self);
@@ -106,8 +107,12 @@ impl ArchetypeTrait for Archetype {
             .map_err(|_| Error::CouldNotBorrowComponent(std::any::type_name::<T>()))?)
     }
 
-    fn new_channel<T: Sync + Send + 'static>(&mut self) {
-        self.channels.push(ComponentChannelStorage::new::<T>());
+    fn push_new_channel<T: Sync + Send + 'static>(&mut self) {
+        self.channels.push(ComponentChannelStorage::new::<T>())
+    }
+    fn insert_new_channel<T: Sync + Send + 'static>(&mut self, index: usize) {
+        self.channels
+            .insert(index, ComponentChannelStorage::new::<T>())
     }
 
     fn new_channel_same_type(&mut self, c: &ComponentChannelStorage) {
