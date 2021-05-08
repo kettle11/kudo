@@ -1,5 +1,4 @@
 mod archetype;
-mod cloneable_world;
 mod component_bundle;
 mod entities;
 mod error;
@@ -10,7 +9,6 @@ mod queries;
 mod world;
 
 use archetype::*;
-pub use cloneable_world::*;
 pub use component_bundle::*;
 use entities::*;
 pub use error::*;

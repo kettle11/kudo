@@ -5,24 +5,19 @@ use crate::*;
 pub trait ComponentTrait: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ComponentTrait for T {}
 
-pub struct ArchetypeWorld<ArchetypeStorage: ComponentStorageTrait + 'static> {
-    pub(crate) archetypes: Vec<Archetype<ArchetypeStorage>>,
+pub struct ArchetypeWorld {
+    pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
 }
 
 pub struct World {
-    pub inner: ArchetypeWorld<ComponentChannelStorage>,
+    pub inner: ArchetypeWorld,
     cloners: HashMap<TypeId, Box<dyn ClonerTrait>>,
 }
 
 pub(crate) trait ClonerTrait: Send + Sync {
-    fn clone_within(
-        &self,
-        index: usize,
-        channel: usize,
-        archetype: &mut Archetype<ComponentChannelStorage>,
-    );
+    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype);
 }
 
 struct Cloner<T> {
@@ -30,12 +25,7 @@ struct Cloner<T> {
 }
 
 impl<T: Clone + 'static> ClonerTrait for Cloner<T> {
-    fn clone_within(
-        &self,
-        index: usize,
-        channel: usize,
-        archetype: &mut Archetype<ComponentChannelStorage>,
-    ) {
+    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype) {
         let channel = archetype.get_channel_mut::<T>(channel);
         channel.push(channel[index].clone())
     }
@@ -255,7 +245,6 @@ impl WorldTrait for World {
 }
 
 impl WorldPrivate for World {
-    type Archetype = <ArchetypeWorld<ComponentChannelStorage> as WorldPrivate>::Archetype;
     fn storage_lookup(&self) -> &StorageLookup {
         self.inner.storage_lookup()
     }
@@ -268,11 +257,11 @@ impl WorldPrivate for World {
         self.inner.entities_mut()
     }
 
-    fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
+    fn borrow_archetype(&self, index: usize) -> &Archetype {
         self.inner.borrow_archetype(index)
     }
 
-    fn push_archetype(&mut self, archetype: Self::Archetype, type_ids: &[TypeId]) -> usize {
+    fn push_archetype(&mut self, archetype: Archetype, type_ids: &[TypeId]) -> usize {
         self.inner.push_archetype(archetype, type_ids)
     }
 }
@@ -285,7 +274,7 @@ pub struct AddInfo {
     pub(crate) new_archetype: bool,
 }
 
-impl<ArchetypeStorage: ComponentStorageTrait> ArchetypeWorld<ArchetypeStorage> {
+impl ArchetypeWorld {
     pub(crate) fn new() -> Self {
         Self {
             archetypes: Vec::new(),
@@ -545,9 +534,7 @@ impl<ArchetypeStorage: ComponentStorageTrait> ArchetypeWorld<ArchetypeStorage> {
     }
 }
 
-impl<ArchetypeStorage: ComponentStorageTrait> WorldPrivate for ArchetypeWorld<ArchetypeStorage> {
-    type Archetype = Archetype<ArchetypeStorage>;
-
+impl WorldPrivate for ArchetypeWorld {
     fn storage_lookup(&self) -> &StorageLookup {
         &self.storage_lookup
     }
@@ -559,15 +546,11 @@ impl<ArchetypeStorage: ComponentStorageTrait> WorldPrivate for ArchetypeWorld<Ar
         &mut self.entities
     }
 
-    fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
+    fn borrow_archetype(&self, index: usize) -> &Archetype {
         &self.archetypes[index]
     }
 
-    fn push_archetype(
-        &mut self,
-        archetype: Archetype<ArchetypeStorage>,
-        type_ids: &[TypeId],
-    ) -> usize {
+    fn push_archetype(&mut self, archetype: Archetype, type_ids: &[TypeId]) -> usize {
         let new_archetype_index = self.archetypes.len();
         self.archetypes.push(archetype);
         self.storage_lookup
@@ -577,7 +560,6 @@ impl<ArchetypeStorage: ComponentStorageTrait> WorldPrivate for ArchetypeWorld<Ar
 }
 
 pub trait WorldTrait: WorldPrivate {
-    // type Archetype: ArchetypeTrait;
     fn new() -> Self;
     fn clone_entity(&mut self, entity: &Entity) -> Option<Entity>;
     fn despawn(&mut self, entity: &Entity) -> Result<(), ()>;
@@ -587,12 +569,11 @@ pub trait WorldTrait: WorldPrivate {
 }
 
 pub trait WorldPrivate {
-    type Archetype: ArchetypeTrait;
     fn storage_lookup(&self) -> &StorageLookup;
     fn entities(&self) -> &Entities;
     fn entities_mut(&mut self) -> &mut Entities;
-    fn borrow_archetype(&self, index: usize) -> &Self::Archetype;
-    fn push_archetype(&mut self, archetype: Self::Archetype, type_ids: &[TypeId]) -> usize;
+    fn borrow_archetype(&self, index: usize) -> &Archetype;
+    fn push_archetype(&mut self, archetype: Archetype, type_ids: &[TypeId]) -> usize;
 }
 
 /// A helper to get two mutable borrows from the same slice.

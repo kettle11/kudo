@@ -4,21 +4,8 @@ use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
 pub trait ComponentBundle: ComponentTrait {
     /// For now this only works correctly for empty entities.
-    fn add_to_entity(self, world: &mut ArchetypeWorld<ComponentChannelStorage>, entity: Entity);
-    fn spawn_in_world(self, world: &mut ArchetypeWorld<ComponentChannelStorage>) -> Entity;
-}
-
-pub trait ComponentBundleClone: ComponentTrait {
-    /// For now this only works correctly for empty entities.
-    fn add_to_entity_clone(
-        self,
-        world: &mut ArchetypeWorld<ComponentChannelStorageClone>,
-        entity: Entity,
-    );
-    fn spawn_in_world_clone(
-        self,
-        world: &mut ArchetypeWorld<ComponentChannelStorageClone>,
-    ) -> Entity;
+    fn add_to_entity(self, world: &mut ArchetypeWorld, entity: Entity);
+    fn spawn_in_world(self, world: &mut ArchetypeWorld) -> Entity;
 }
 
 // This macro is a little funky because it needs to reorder insert based on `TypeId`s.
@@ -29,7 +16,7 @@ macro_rules! component_bundle_impl {
         impl< $($name: ComponentTrait),*> ComponentBundle for ($($name,)*) {
 
             /// For now this only works if the Entity has no components.
-            fn add_to_entity(self, world: &mut ArchetypeWorld<ComponentChannelStorage>, entity: Entity) {
+            fn add_to_entity(self, world: &mut ArchetypeWorld, entity: Entity) {
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
 
                 debug_assert!(
@@ -45,7 +32,7 @@ macro_rules! component_bundle_impl {
                     Some(index) => index,
                     None => {
 
-                        let mut new_archetype = Archetype::<ComponentChannelStorage>::new();
+                        let mut new_archetype = Archetype::new();
                         // Insert each channel
                         $(new_archetype.push_new_channel::<$name>();)*
                         // Sort the channels
@@ -81,71 +68,9 @@ macro_rules! component_bundle_impl {
                 });
             }
 
-            fn spawn_in_world(self, world: &mut ArchetypeWorld<ComponentChannelStorage>) -> Entity {
+            fn spawn_in_world(self, world: &mut ArchetypeWorld) -> Entity {
                 let new_entity = world.entities.new_entity_handle();
                 self.add_to_entity(world, new_entity.clone());
-                new_entity
-            }
-        }
-
-        // This shouldn't just be copy-pasted, but it works for now
-        impl< $($name: ComponentTrait + WorldClone),*> ComponentBundleClone for ($($name,)*) {
-            /// For now this only works if the Entity has no components.
-            fn add_to_entity_clone(self, world: &mut ArchetypeWorld<ComponentChannelStorageClone>, entity: Entity) {
-                let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
-
-                debug_assert!(
-                    type_ids_and_order.windows(2).all(|x: &[(usize, TypeId)] | x[0].1 != x[1].1),
-                    "`ComponentBundles cannot have duplicate types!"
-                );
-
-                type_ids_and_order.sort_unstable_by_key(|a| a.1);
-                let type_ids = [$(type_ids_and_order[$index].1), *];
-
-                // Find the archetype in the world
-                let archetype_index = match world.storage_lookup.get_archetype_with_components(&type_ids) {
-                    Some(index) => index,
-                    None => {
-
-                        let mut new_archetype = Archetype::<ComponentChannelStorageClone>::new();
-                        // Insert each channel
-                        $(new_archetype.push_new_channel::<$name>();)*
-                        // Sort the channels
-                        new_archetype.sort_channels();
-
-                        let new_archetype_index = world.archetypes.len();
-                        world.archetypes.push(new_archetype);
-                        world.storage_lookup
-                            .new_archetype(new_archetype_index, &type_ids);
-                        new_archetype_index
-                    }
-                };
-                let archetype = &mut world.archetypes[archetype_index];
-
-                // Is there a better way to map the original ordering to the sorted ordering?
-                let mut order = [0; $count];
-                for i in 0..order.len() {
-                    order[type_ids_and_order[i].0] = i;
-                }
-
-                $(archetype.get_channel_mut(order[$index]).push(self.$index);)*
-
-                let index_within_archetype = archetype.entities.get_mut().unwrap().len();
-                archetype.entities.get_mut().unwrap().push(entity.clone());
-
-                let entity_location = world.entities.get_at_index_mut(entity.index);
-
-                // This function only works for now on empty `Entity`s, panic otherwise.
-                assert!(entity_location.is_none());
-                *entity_location = Some(EntityLocation {
-                    archetype_index,
-                    index_within_archetype
-                });
-            }
-
-            fn spawn_in_world_clone(self, world: &mut ArchetypeWorld<ComponentChannelStorageClone>) -> Entity {
-                let new_entity = world.entities.new_entity_handle();
-                self.add_to_entity_clone(world, new_entity.clone());
                 new_entity
             }
         }

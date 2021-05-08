@@ -57,7 +57,7 @@ pub trait QueryParameter: for<'a> QueryParameterBorrow<'a> {
 pub trait QueryParameterBorrow<'a> {
     type ParameterBorrow;
     fn borrow(
-        archetype: &'a impl ArchetypeTrait,
+        archetype: &'a Archetype,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error>;
 }
@@ -77,7 +77,7 @@ impl<T: 'static> QueryParameter for &T {
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &T {
     type ParameterBorrow = RwLockReadGuard<'a, Vec<T>>;
     fn borrow(
-        archetype: &'a impl ArchetypeTrait,
+        archetype: &'a Archetype,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
         archetype.borrow_channel(channel_index.unwrap())
@@ -101,7 +101,7 @@ impl<Q: QueryParameter> QueryParameter for Option<Q> {
 impl<'a, Q: QueryParameterBorrow<'a>> QueryParameterBorrow<'a> for Option<Q> {
     type ParameterBorrow = Option<Q::ParameterBorrow>;
     fn borrow(
-        archetype: &'a impl ArchetypeTrait,
+        archetype: &'a Archetype,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
         Ok(if let Some(channel_index) = channel_index {
@@ -127,7 +127,7 @@ impl<T: 'static> QueryParameter for &mut T {
 impl<'a, T: 'static> QueryParameterBorrow<'a> for &mut T {
     type ParameterBorrow = RwLockWriteGuard<'a, Vec<T>>;
     fn borrow(
-        archetype: &'a impl ArchetypeTrait,
+        archetype: &'a Archetype,
         channel_index: Option<usize>,
     ) -> Result<Self::ParameterBorrow, Error> {
         archetype.channel_mut(channel_index.unwrap())

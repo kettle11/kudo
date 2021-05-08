@@ -318,13 +318,3 @@ fn hierarchy_despawn() {
     world.set_parent(Some(&parent), &child);
     world.despawn(&parent).unwrap();
 }
-
-#[test]
-fn clone_world() {
-    use crate::*;
-    let mut world = CloneableWorld::new();
-    world.spawn((true,));
-
-    let world_cloned = world.clone();
-    assert!(world_cloned.query::<(&bool,)>().unwrap().iter().count() == 1)
-}
