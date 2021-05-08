@@ -2,11 +2,13 @@ use std::{any::TypeId, collections::HashMap};
 
 use crate::sparse_set::*;
 
+#[derive(Clone)]
 pub struct ComponentArchetypeInfo {
     archetype_index: usize,
     channel_in_archetype: usize,
 }
 
+#[derive(Clone)]
 pub struct ComponentInfo {
     pub archetypes: SparseSet<ComponentArchetypeInfo>,
 }
@@ -32,7 +34,8 @@ pub struct ArchetypeMatch<const CHANNEL_COUNT: usize> {
     pub resource_indices: [Option<usize>; CHANNEL_COUNT],
 }
 
-// This operates under the assumptipn that Archetypes are never deallocated.
+#[derive(Clone)]
+// This operates under the assumption that Archetypes are never deallocated.
 pub struct StorageLookup {
     archetype_count: usize,
     component_info: HashMap<TypeId, ComponentInfo>,
@@ -52,6 +55,7 @@ impl StorageLookup {
     /// Declare a new archetype with the TypeIds.
     /// This assumes TypeIds are already sorted
     pub fn new_archetype(&mut self, archetype_index: usize, type_ids: &[TypeId]) {
+        println!("NEW ARCHETYPE: {:?}", type_ids);
         for (channel_in_archetype, type_id) in type_ids.iter().enumerate() {
             if !self.component_info.contains_key(type_id) {
                 self.component_info.insert(
@@ -212,6 +216,10 @@ impl StorageLookup {
                     .data()
                     .iter()
                 {
+                    println!(
+                        "CONDERING ARCHETYPE: {:?}",
+                        component_archetype_info.archetype_index
+                    );
                     // Reset the data so it's not used in multiple matches.
                     archetype_match.channels = [None; REQUIREMENT_COUNT];
                     archetype_match.resource_indices = [None; REQUIREMENT_COUNT];
@@ -221,6 +229,8 @@ impl StorageLookup {
                         archetype_match.channels[requirement_index] =
                             Some(component_archetype_info.channel_in_archetype);
                     }
+
+                    //  println!("FILTERS: {:?}", tail_filters);
 
                     if check_further_matches(
                         component_archetype_info.archetype_index,

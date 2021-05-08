@@ -107,8 +107,13 @@ fn simple_spawn() {
 fn add_component0() {
     use crate::*;
 
+    println!("TYPE ID OF I32: {:?}", std::any::TypeId::of::<i32>());
+    println!("TYPE ID OF BOOL: {:?}", std::any::TypeId::of::<bool>());
+
     let mut world = World::new();
     let entity = world.spawn((1 as i32,));
+    println!("HERE");
+
     world.add_component(&entity, true);
     let result = (|q: Query<(&i32, &bool)>| -> bool { *q.iter().next().unwrap().1 })
         .run(&world)
@@ -124,6 +129,7 @@ fn add_component1() {
     use crate::*;
 
     let mut world = World::new();
+
     let entity = world.spawn((true,));
     world.add_component(&entity, 10 as i32);
     let result = (|q: Query<(&i32, &bool)>| -> bool { *q.iter().next().unwrap().1 })
@@ -304,6 +310,17 @@ fn despawn() {
 
 #[test]
 fn hierarchy_despawn() {
+    use crate::*;
+    let mut world = World::new();
+    let parent = world.spawn((0,));
+    let child = world.spawn((1,));
+
+    world.set_parent(Some(&parent), &child);
+    world.despawn(&parent).unwrap();
+}
+
+#[test]
+fn clone_world() {
     use crate::*;
     let mut world = World::new();
     let parent = world.spawn((0,));

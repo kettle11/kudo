@@ -1,12 +1,13 @@
 use crate::{Entity, EntityLocation};
 use std::sync::Mutex;
 
-struct Inner {
-    generation_and_location: Vec<(usize, Option<EntityLocation>)>,
-    free_entity_indices: Vec<usize>,
+#[derive(Clone)]
+pub(crate) struct EntitiesInner {
+    pub(crate) generation_and_location: Vec<(usize, Option<EntityLocation>)>,
+    pub(crate) free_entity_indices: Vec<usize>,
 }
 
-impl Inner {
+impl EntitiesInner {
     pub fn new_handle(&mut self) -> Entity {
         if let Some(index) = self.free_entity_indices.pop() {
             let generation_and_location = &mut self.generation_and_location[index];
@@ -30,13 +31,21 @@ impl Inner {
 pub struct Entities {
     // This isn't great, but it's a quick way to make spawning entities thread safe.
     // However this might result in lots of contention, but for now it's probably fine.
-    inner: Mutex<Inner>,
+    pub(crate) inner: Mutex<EntitiesInner>,
+}
+
+impl Clone for Entities {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Mutex::new(self.inner.lock().unwrap().clone()),
+        }
+    }
 }
 
 impl Entities {
     pub fn new() -> Self {
         Self {
-            inner: Mutex::new(Inner {
+            inner: Mutex::new(EntitiesInner {
                 generation_and_location: Vec::new(),
                 free_entity_indices: Vec::new(),
             }),

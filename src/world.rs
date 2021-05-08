@@ -162,11 +162,9 @@ impl World {
         todo!()
     }*/
 
-    /*
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(&mut self.inner)
     }
-    */
 
     /// Adds a component to an Entity
     /// If the Entity does not exist, this returns None.
@@ -179,6 +177,7 @@ impl World {
         // `add_component` is split into two parts. The part here does a small amount of work.
         // This is structured this way so that `World` and `CloneableWorld` can have slightly different implementations.
         let type_id = TypeId::of::<T>();
+        println!("ADDING TYPE ID: {:?}", type_id);
         let add_info = self.inner.add_component_inner(entity, type_id).ok()?;
         let new_archetype = &mut self.inner.archetypes[add_info.archetype_index];
         if add_info.new_archetype {
@@ -265,8 +264,16 @@ impl WorldPrivate for World {
         self.inner.entities()
     }
 
+    fn entities_mut(&mut self) -> &mut Entities {
+        self.inner.entities_mut()
+    }
+
     fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
         self.inner.borrow_archetype(index)
+    }
+
+    fn push_archetype(&mut self, archetype: Self::Archetype, type_ids: &[TypeId]) -> usize {
+        self.inner.push_archetype(archetype, type_ids)
     }
 }
 
@@ -285,18 +292,6 @@ impl<ArchetypeStorage: ComponentStorageTrait> ArchetypeWorld<ArchetypeStorage> {
             entities: Entities::new(),
             storage_lookup: StorageLookup::new(),
         }
-    }
-
-    pub(crate) fn push_archetype(
-        &mut self,
-        archetype: Archetype<ArchetypeStorage>,
-        type_ids: &[TypeId],
-    ) -> usize {
-        let new_archetype_index = self.archetypes.len();
-        self.archetypes.push(archetype);
-        self.storage_lookup
-            .new_archetype(new_archetype_index, &type_ids);
-        new_archetype_index
     }
 
     pub(crate) fn reserve_entity(&self) -> Entity {
@@ -412,6 +407,7 @@ impl<ArchetypeStorage: ComponentStorageTrait> ArchetypeWorld<ArchetypeStorage> {
         // in an Archetype.
         let (type_ids, insert_position) = if let Some(old_entity_location) = old_entity_location {
             let mut type_ids = self.archetypes[old_entity_location.archetype_index].type_ids();
+            println!("TYPE IDS: {:?}", type_ids);
             let insert_position = match type_ids.binary_search(&new_component_id) {
                 Ok(i) => {
                     // If the component already exists, simply replace it with the new one.
@@ -487,7 +483,7 @@ impl<ArchetypeStorage: ComponentStorageTrait> ArchetypeWorld<ArchetypeStorage> {
 
         while let Some(first) = &mut first_channel {
             if let Some(second) = &mut second_channel {
-                match first.type_id().cmp(&second.type_id()) {
+                match first.get_type_id().cmp(&second.get_type_id()) {
                     std::cmp::Ordering::Less => {
                         first_channel = first_channel_iter.next();
                     }
@@ -559,9 +555,24 @@ impl<ArchetypeStorage: ComponentStorageTrait> WorldPrivate for ArchetypeWorld<Ar
     fn entities(&self) -> &Entities {
         &self.entities
     }
+    fn entities_mut(&mut self) -> &mut Entities {
+        &mut self.entities
+    }
 
     fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
         &self.archetypes[index]
+    }
+
+    fn push_archetype(
+        &mut self,
+        archetype: Archetype<ArchetypeStorage>,
+        type_ids: &[TypeId],
+    ) -> usize {
+        let new_archetype_index = self.archetypes.len();
+        self.archetypes.push(archetype);
+        self.storage_lookup
+            .new_archetype(new_archetype_index, &type_ids);
+        new_archetype_index
     }
 }
 
@@ -579,7 +590,9 @@ pub trait WorldPrivate {
     type Archetype: ArchetypeTrait;
     fn storage_lookup(&self) -> &StorageLookup;
     fn entities(&self) -> &Entities;
+    fn entities_mut(&mut self) -> &mut Entities;
     fn borrow_archetype(&self, index: usize) -> &Self::Archetype;
+    fn push_archetype(&mut self, archetype: Self::Archetype, type_ids: &[TypeId]) -> usize;
 }
 
 /// A helper to get two mutable borrows from the same slice.

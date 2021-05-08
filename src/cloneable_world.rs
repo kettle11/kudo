@@ -46,10 +46,44 @@ impl CloneableWorld {
     */
 
     /// Adds this CloneableWorld to another world.
-    pub fn add_to_world(self, entity: &Entity, world: impl WorldTrait) {
-        // This needs to iterate through all of the `Entity`'s components and clone
-        // them into the new world.
-        todo!()
+    pub fn add_to_world<WORLD: WorldTrait>(self, world: &mut WORLD)
+    where
+        WORLD::Archetype: From<Archetype<ComponentChannelStorageClone>>,
+    {
+        let old_entities = self.inner.entities.inner.lock().unwrap();
+
+        // Temporarily take the new world's `Entities` structure.
+        let new_entities = &mut Entities::new();
+        std::mem::swap(world.entities_mut(), new_entities);
+        let mut entity_migrator = EntityMigrator::new(&old_entities, new_entities);
+
+        for mut archetype in self.inner.archetypes {
+            let type_ids = archetype.type_ids();
+            let new_entities: Vec<Entity> = archetype
+                .entities
+                .get_mut()
+                .unwrap()
+                .iter()
+                .map(|entity| entity_migrator.get_new_entity(entity))
+                .collect();
+
+            if let Some(target_archetype) = world
+                .storage_lookup()
+                .get_archetype_with_components(&type_ids)
+            {
+                // Append the data in this archetype to the new world.
+                todo!()
+            } else {
+                // Insert this archetype into the new world but modify its entities list.
+                let new_archetype: WORLD::Archetype = archetype
+                    .world_clone_with_entities(&mut entity_migrator, new_entities)
+                    .into();
+                let type_ids = new_archetype.type_ids();
+                world.push_archetype(new_archetype, &type_ids);
+            }
+        }
+
+        std::mem::swap(world.entities_mut(), new_entities);
     }
 
     /// Adds a component to an Entity
@@ -84,22 +118,106 @@ impl CloneableWorld {
     }
 }
 
+impl Clone for ArchetypeWorld<ComponentChannelStorageClone> {
+    fn clone(&self) -> Self {
+        let mut do_nothing_entity_migrator = DoNothingEntityMigrator {};
+        Self {
+            storage_lookup: self.storage_lookup.clone(),
+            entities: self.entities.clone(),
+            archetypes: self
+                .archetypes
+                .iter()
+                .map(|a| {
+                    a.world_clone_with_entities(
+                        &mut do_nothing_entity_migrator,
+                        a.entities
+                            .read()
+                            .unwrap()
+                            .iter()
+                            .map(|e| e.clone())
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+struct DoNothingEntityMigrator {}
+
+impl EntityMigratorTrait for DoNothingEntityMigrator {
+    fn get_new_entity(&mut self, entity: &Entity) -> Entity {
+        entity.clone()
+    }
+}
+
+#[derive(Clone)]
+struct TempEntityInfo {
+    index: usize,
+    generation: usize,
+}
+
+pub trait EntityMigratorTrait {
+    fn get_new_entity(&mut self, entity: &Entity) -> Entity;
+}
+
+pub struct EntityMigrator<'a> {
+    old_to_new: Vec<Option<TempEntityInfo>>,
+    old_entities: &'a EntitiesInner,
+    new_entities: &'a Entities,
+}
+
+impl<'a> EntityMigrator<'a> {
+    fn new(old_entities: &'a EntitiesInner, new_entities: &'a Entities) -> Self {
+        Self {
+            old_to_new: vec![None; old_entities.generation_and_location.len()],
+            old_entities,
+            new_entities,
+        }
+    }
+}
+
+impl<'a> EntityMigratorTrait for EntityMigrator<'a> {
+    fn get_new_entity(&mut self, entity: &Entity) -> Entity {
+        if self.old_entities.generation_and_location[entity.index].0 != entity.generation {
+            // Entities that no longer exist in the original world should be replaced with a
+            // similarly invalid Entity in the new world.
+            todo!()
+        } else {
+            let old_to_new = &mut self.old_to_new[entity.index];
+            if let Some(old_to_new) = old_to_new {
+                Entity {
+                    index: old_to_new.index,
+                    generation: old_to_new.generation,
+                }
+            } else {
+                let entity = self.new_entities.reserve_entity();
+                *old_to_new = Some(TempEntityInfo {
+                    index: entity.index,
+                    generation: entity.generation,
+                });
+                entity
+            }
+        }
+    }
+}
+
 /// Can be cloned between worlds.
 /// This trait works similarly to `Clone`, but it is implemented in a way that
 /// preserves `Entity` relationships when cloning into different worlds.
 pub trait WorldClone {
-    fn world_clone(&self) -> Self;
+    fn world_clone(&self, entity_migrator: &mut impl EntityMigratorTrait) -> Self;
 }
 
 impl<T: Clone> WorldClone for T {
-    fn world_clone(&self) -> Self {
+    fn world_clone(&self, _: &mut impl EntityMigratorTrait) -> Self {
         self.clone()
     }
 }
 
 impl WorldClone for Entity {
-    fn world_clone(&self) -> Self {
-        todo!()
+    fn world_clone(&self, entity_migrator: &mut impl EntityMigratorTrait) -> Self {
+        entity_migrator.get_new_entity(self)
     }
 }
 
@@ -113,7 +231,15 @@ impl WorldPrivate for CloneableWorld {
         self.inner.entities()
     }
 
+    fn entities_mut(&mut self) -> &mut Entities {
+        self.inner.entities_mut()
+    }
+
     fn borrow_archetype(&self, index: usize) -> &Self::Archetype {
         self.inner.borrow_archetype(index)
+    }
+
+    fn push_archetype(&mut self, archetype: Self::Archetype, type_ids: &[TypeId]) -> usize {
+        self.inner.push_archetype(archetype, type_ids)
     }
 }

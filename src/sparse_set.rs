@@ -1,4 +1,6 @@
 type EntityIndex = usize;
+
+#[derive(Clone)]
 pub struct SparseSet<T> {
     indices: Vec<Option<usize>>,
     data: Vec<T>,

@@ -41,7 +41,7 @@ impl<STORAGE: ComponentStorageTrait> ArchetypeTrait for Archetype<STORAGE> {
     }
 
     fn type_ids(&self) -> Vec<TypeId> {
-        self.channels.iter().map(|c| c.type_id()).collect()
+        self.channels.iter().map(|c| c.get_type_id()).collect()
     }
 
     fn entities(&self) -> RwLockReadGuard<Vec<Entity>> {
@@ -63,7 +63,7 @@ impl<STORAGE: ComponentStorageTrait> ArchetypeTrait for Archetype<STORAGE> {
     fn get_component_mut<T: 'static>(&mut self, entity_index: usize) -> Result<&mut T, ()> {
         let type_id = TypeId::of::<T>();
         for channel in self.channels.iter_mut() {
-            if channel.type_id() == type_id {
+            if channel.get_type_id() == type_id {
                 return Ok(channel
                     .channel_mut()
                     .to_any_mut()
@@ -109,9 +109,6 @@ impl<STORAGE: ComponentStorageTrait> ArchetypeTrait for Archetype<STORAGE> {
     }
 
     /*
-    fn push_new_channel<T: Sync + Send + 'static>(&mut self) {
-        self.channels.push(ComponentChannelStorage::new::<T>())
-    }
     fn insert_new_channel<T: Sync + Send + 'static>(&mut self, index: usize) {
         self.channels
             .insert(index, ComponentChannelStorage::new::<T>())
@@ -125,7 +122,7 @@ impl<STORAGE: ComponentStorageTrait> ArchetypeTrait for Archetype<STORAGE> {
     /// To be used after an Archetype is done being constructed
     fn sort_channels(&mut self) {
         self.channels
-            .sort_unstable_by(|a, b| a.type_id().cmp(&b.type_id()));
+            .sort_unstable_by(|a, b| a.get_type_id().cmp(&b.get_type_id()));
     }
 
     fn swap_remove(&mut self, index: usize) {
@@ -142,7 +139,7 @@ static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub trait ComponentStorageTrait {
     // fn new<T: ComponentTrait>() -> Self;
     fn new_same_type(&self) -> Self;
-    fn type_id(&mut self) -> TypeId;
+    fn get_type_id(&self) -> TypeId;
     fn channel_mut(&mut self) -> &mut dyn ComponentChannelTrait;
     fn channel(&self) -> &dyn ComponentChannelTrait;
 }
@@ -169,13 +166,17 @@ impl ComponentStorageTrait for ComponentChannelStorage {
         &*self.component_channel
     }
 
-    fn type_id(&mut self) -> TypeId {
+    fn get_type_id(&self) -> TypeId {
+        println!("TYPE ID HERE0: {:?}", self.type_id);
+
         self.type_id
     }
 }
 
 impl ComponentChannelStorage {
     pub(crate) fn new<T: ComponentTrait>() -> Self {
+        println!("TYPE ID HERE: {:?}", TypeId::of::<T>());
+
         Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
@@ -187,7 +188,7 @@ impl ComponentChannelStorage {
 pub struct ComponentChannelStorageClone {
     pub(crate) type_id: TypeId,
     pub(crate) channel_id: usize,
-    component_channel: Box<dyn CloneComponentChannel>,
+    component_channel: Box<dyn CloneComponentChannelTrait>,
 }
 
 impl ComponentStorageTrait for ComponentChannelStorageClone {
@@ -207,7 +208,7 @@ impl ComponentStorageTrait for ComponentChannelStorageClone {
         self.component_channel.as_component_channel()
     }
 
-    fn type_id(&mut self) -> TypeId {
+    fn get_type_id(&self) -> TypeId {
         self.type_id
     }
 }
@@ -222,16 +223,28 @@ impl ComponentChannelStorageClone {
     }
 }
 
-pub trait CloneComponentChannel: ComponentChannelTrait {
-    fn clone_into(&mut self, into: &mut dyn ComponentChannelTrait, index: usize);
-    fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannel>;
+pub trait CloneComponentChannelTrait: ComponentChannelTrait {
+    fn clone_into(
+        &mut self,
+        into: &mut dyn ComponentChannelTrait,
+        index: usize,
+        entity_migrator: &mut EntityMigrator,
+    );
+    fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannelTrait>;
     fn as_component_channel_mut(&mut self) -> &mut dyn ComponentChannelTrait;
     fn as_component_channel(&self) -> &dyn ComponentChannelTrait;
+    //fn world_clone_self(&self) -> Box<dyn CloneComponentChannelTrait>;
+    fn to_component_channel(self: Box<Self>) -> Box<dyn ComponentChannelTrait>;
 }
 
-impl<T: ComponentTrait + WorldClone> CloneComponentChannel for RwLock<Vec<T>> {
-    fn clone_into(&mut self, other: &mut dyn ComponentChannelTrait, index: usize) {
-        let data: T = self.get_mut().unwrap()[index].world_clone();
+impl<T: ComponentTrait + WorldClone> CloneComponentChannelTrait for RwLock<Vec<T>> {
+    fn clone_into(
+        &mut self,
+        other: &mut dyn ComponentChannelTrait,
+        index: usize,
+        entity_migrator: &mut EntityMigrator,
+    ) {
+        let data: T = self.get_mut().unwrap()[index].world_clone(entity_migrator);
         let other = other
             .to_any_mut()
             .downcast_mut::<RwLock<Vec<T>>>()
@@ -241,7 +254,7 @@ impl<T: ComponentTrait + WorldClone> CloneComponentChannel for RwLock<Vec<T>> {
         other.push(data);
     }
 
-    fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannel> {
+    fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannelTrait> {
         Box::new(RwLock::new(Vec::<T>::new()))
     }
 
@@ -250,6 +263,78 @@ impl<T: ComponentTrait + WorldClone> CloneComponentChannel for RwLock<Vec<T>> {
     }
     fn as_component_channel(&self) -> &dyn ComponentChannelTrait {
         self
+    }
+
+    /*
+    fn world_clone_self(&self) -> Box<dyn CloneComponentChannelTrait> {
+        let data = self.read().unwrap();
+        let v = data.iter().map(|d| d.world_clone()).collect();
+        Box::new(RwLock::new(v))
+    }
+    */
+
+    fn to_component_channel(self: Box<Self>) -> Box<dyn ComponentChannelTrait> {
+        self
+    }
+}
+
+impl Archetype<ComponentChannelStorageClone> {
+    fn to_component_channel_archetype() -> Archetype<ComponentChannelStorage> {
+        todo!()
+    }
+    pub fn push_new_channel<T: Sync + Send + 'static + WorldClone>(&mut self) {
+        self.channels.push(ComponentChannelStorageClone::new::<T>())
+    }
+}
+
+impl Archetype<ComponentChannelStorage> {
+    pub(crate) fn push_new_channel<T: Sync + Send + 'static>(&mut self) {
+        self.channels.push(ComponentChannelStorage::new::<T>())
+    }
+}
+/*
+impl<T: WorldClone> WorldClone for Vec<T> {
+    fn world_clone(&self) -> Self {
+        let mut v = Vec::with_capacity(self.len());
+        for item in self {
+            v.push(item.world_clone())
+        }
+    }
+}
+*/
+
+impl WorldClone for Box<dyn CloneComponentChannelTrait> {
+    fn world_clone(&self, entity_migrator: &mut impl EntityMigratorTrait) -> Self {
+        self.new_same_type_clone()
+    }
+}
+
+impl WorldClone for ComponentChannelStorageClone {
+    fn world_clone(&self, entity_migrator: &mut impl EntityMigratorTrait) -> Self {
+        Self {
+            type_id: self.type_id,
+            channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
+            component_channel: self.component_channel.world_clone(entity_migrator),
+        }
+    }
+}
+
+impl Archetype<ComponentChannelStorageClone> {
+    pub(crate) fn world_clone_with_entities(
+        &self,
+        entity_migrator: &mut impl EntityMigratorTrait,
+        entities: Vec<Entity>,
+    ) -> Self {
+        let channels = self
+            .channels
+            .iter()
+            .map(|c| c.world_clone(entity_migrator))
+            .collect();
+        Self {
+            channels,
+            // Entities will be filled in later.
+            entities: RwLock::new(entities),
+        }
     }
 }
 
