@@ -233,7 +233,7 @@ pub trait CloneComponentChannelTrait: ComponentChannelTrait {
     fn new_same_type_clone(&self) -> Box<dyn CloneComponentChannelTrait>;
     fn as_component_channel_mut(&mut self) -> &mut dyn ComponentChannelTrait;
     fn as_component_channel(&self) -> &dyn ComponentChannelTrait;
-    //fn world_clone_self(&self) -> Box<dyn CloneComponentChannelTrait>;
+    fn world_clone_self(&self) -> Box<dyn CloneComponentChannelTrait>;
     fn to_component_channel(self: Box<Self>) -> Box<dyn ComponentChannelTrait>;
 }
 
@@ -265,13 +265,14 @@ impl<T: ComponentTrait + WorldClone> CloneComponentChannelTrait for RwLock<Vec<T
         self
     }
 
-    /*
     fn world_clone_self(&self) -> Box<dyn CloneComponentChannelTrait> {
         let data = self.read().unwrap();
-        let v = data.iter().map(|d| d.world_clone()).collect();
+        let v = data
+            .iter()
+            .map(|d| d.world_clone(&mut DoNothingEntityMigrator {}))
+            .collect();
         Box::new(RwLock::new(v))
     }
-    */
 
     fn to_component_channel(self: Box<Self>) -> Box<dyn ComponentChannelTrait> {
         self
@@ -304,8 +305,8 @@ impl<T: WorldClone> WorldClone for Vec<T> {
 */
 
 impl WorldClone for Box<dyn CloneComponentChannelTrait> {
-    fn world_clone(&self, entity_migrator: &mut impl EntityMigratorTrait) -> Self {
-        self.new_same_type_clone()
+    fn world_clone(&self, _entity_migrator: &mut impl EntityMigratorTrait) -> Self {
+        self.world_clone_self()
     }
 }
 

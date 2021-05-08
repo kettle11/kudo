@@ -39,11 +39,9 @@ impl WorldTrait for CloneableWorld {
 }
 
 impl CloneableWorld {
-    /*
-    pub fn spawn<CB: ComponentBundle + WorldClone>(&mut self, component_bundle: CB) -> Entity {
-        component_bundle.spawn_in_world(&mut self.inner)
+    pub fn spawn<CB: ComponentBundleClone + WorldClone>(&mut self, component_bundle: CB) -> Entity {
+        component_bundle.spawn_in_world_clone(&mut self.inner)
     }
-    */
 
     /// Adds this CloneableWorld to another world.
     pub fn add_to_world<WORLD: WorldTrait>(self, world: &mut WORLD)
@@ -116,6 +114,21 @@ impl CloneableWorld {
         }
         Some(())
     }
+
+    pub fn query<'world_borrow, T: QueryParameters>(
+        &'world_borrow self,
+    ) -> Result<
+        <<Query<'world_borrow, T> as QueryTrait<'world_borrow, Self>>::Result as GetQueryDirect>::Arg,
+        Error,
+    >
+    where
+        Query<'world_borrow, T>: QueryTrait<'world_borrow, Self>,
+        <Query<'world_borrow, T> as QueryTrait<'world_borrow, Self>>::Result: GetQueryDirect,
+    {
+        let query_info = <Query<'world_borrow, T> as GetQueryInfoTrait<Self>>::query_info(self)?;
+        let result = <Query<'world_borrow, T>>::get_query(self, &query_info)?;
+        Ok(result.get_query_direct())
+    }
 }
 
 impl Clone for ArchetypeWorld<ComponentChannelStorageClone> {
@@ -143,7 +156,15 @@ impl Clone for ArchetypeWorld<ComponentChannelStorageClone> {
     }
 }
 
-struct DoNothingEntityMigrator {}
+impl Clone for CloneableWorld {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+pub(crate) struct DoNothingEntityMigrator {}
 
 impl EntityMigratorTrait for DoNothingEntityMigrator {
     fn get_new_entity(&mut self, entity: &Entity) -> Entity {
