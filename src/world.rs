@@ -87,7 +87,7 @@ impl World {
 
         if let Some(node) = self
             .get_component_mut::<HierarchyNode>(entity_to_clone)
-            .map(|h| h.clone())
+            .map(|h| h.clone_hierarchy())
         {
             let new_previous_sibling = if let Some(previous_sibling) = node.previous_sibling {
                 Some(self.clone_hierarchy(&previous_sibling, new_parent, Some(&new_entity))?)
@@ -309,7 +309,7 @@ impl ArchetypeWorld {
             // If this is a hierarchy node then child `Entity`s and their children should be removed.
             if let Some(hierarchy_node) = self
                 .get_component_mut::<HierarchyNode>(entity)
-                .map(|h| h.clone())
+                .map(|h| h.clone_hierarchy())
             {
                 // Despawn all children and their siblings
                 let mut current_child = hierarchy_node.last_child;

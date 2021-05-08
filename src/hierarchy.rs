@@ -22,7 +22,7 @@ impl HierarchyNode {
         &self.previous_sibling
     }
 
-    pub fn clone(&self) -> Self {
+    pub fn clone_hierarchy(&self) -> Self {
         Self {
             parent: self.parent.clone(),
             last_child: self.last_child.clone(),

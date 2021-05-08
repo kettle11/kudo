@@ -24,9 +24,8 @@ impl<I: Iterator> Iterator for ChainedIterator<I> {
         // If the end of one iterator is reached go to the next.
         loop {
             if let Some(iter) = &mut self.current_iter {
-                match iter.next() {
-                    v @ Some(_) => return v,
-                    None => {}
+                if let v @ Some(_) = iter.next() {
+                    return v;
                 }
             }
             if let Some(i) = self.iterators.pop() {
