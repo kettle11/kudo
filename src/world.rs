@@ -167,7 +167,6 @@ impl World {
         // `add_component` is split into two parts. The part here does a small amount of work.
         // This is structured this way so that `World` and `CloneableWorld` can have slightly different implementations.
         let type_id = TypeId::of::<T>();
-        println!("ADDING TYPE ID: {:?}", type_id);
         let add_info = self.inner.add_component_inner(entity, type_id).ok()?;
         let new_archetype = &mut self.inner.archetypes[add_info.archetype_index];
         if add_info.new_archetype {
@@ -396,7 +395,6 @@ impl ArchetypeWorld {
         // in an Archetype.
         let (type_ids, insert_position) = if let Some(old_entity_location) = old_entity_location {
             let mut type_ids = self.archetypes[old_entity_location.archetype_index].type_ids();
-            println!("TYPE IDS: {:?}", type_ids);
             let insert_position = match type_ids.binary_search(&new_component_id) {
                 Ok(i) => {
                     // If the component already exists, simply replace it with the new one.
@@ -417,6 +415,7 @@ impl ArchetypeWorld {
             (Vec::new(), 0)
         };
 
+        let mut is_new_archetype = false;
         // Find or create a new archetype for this entity.
         let new_archetype_index = match self.storage_lookup.get_archetype_with_components(&type_ids)
         {
@@ -430,8 +429,8 @@ impl ArchetypeWorld {
                     }
                 }
 
+                is_new_archetype = true;
                 // New channel insertion is deferred until later to allow variation between `CloneableWorld` and `World`.
-
                 self.push_archetype(new_archetype, &type_ids)
             }
         };
@@ -449,7 +448,7 @@ impl ArchetypeWorld {
             archetype_index: new_archetype_index,
             channel_index: insert_position,
             replace_index: None,
-            new_archetype: true,
+            new_archetype: is_new_archetype,
         })
     }
 

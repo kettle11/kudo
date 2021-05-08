@@ -92,6 +92,7 @@ impl Archetype {
     */
 
     pub(crate) fn new_channel_same_type(&mut self, c: &ComponentChannelStorage) {
+        println!("NEW CHANNEL SAME TYPE: {:?}", c.type_id());
         self.channels.push(c.new_same_type());
     }
 
@@ -146,8 +147,6 @@ impl ComponentStorageTrait for ComponentChannelStorage {
     }
 
     fn get_type_id(&self) -> TypeId {
-        println!("TYPE ID HERE0: {:?}", self.type_id);
-
         self.type_id
     }
 }

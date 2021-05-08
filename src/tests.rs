@@ -318,3 +318,11 @@ fn hierarchy_despawn() {
     world.set_parent(Some(&parent), &child);
     world.despawn(&parent).unwrap();
 }
+
+#[test]
+fn empty_archetype() {
+    use crate::*;
+    let mut world = World::new();
+    let entity = world.spawn((true,));
+    world.remove_component::<bool>(&entity);
+}

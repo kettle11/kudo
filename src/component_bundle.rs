@@ -38,11 +38,7 @@ macro_rules! component_bundle_impl {
                         // Sort the channels
                         new_archetype.sort_channels();
 
-                        let new_archetype_index = world.archetypes.len();
-                        world.archetypes.push(new_archetype);
-                        world.storage_lookup
-                            .new_archetype(new_archetype_index, &type_ids);
-                        new_archetype_index
+                        world.push_archetype(new_archetype, &type_ids)
                     }
                 };
                 let archetype = &mut world.archetypes[archetype_index];

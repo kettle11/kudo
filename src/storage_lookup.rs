@@ -55,7 +55,6 @@ impl StorageLookup {
     /// Declare a new archetype with the TypeIds.
     /// This assumes TypeIds are already sorted
     pub fn new_archetype(&mut self, archetype_index: usize, type_ids: &[TypeId]) {
-        println!("NEW ARCHETYPE: {:?}", type_ids);
         for (channel_in_archetype, type_id) in type_ids.iter().enumerate() {
             if !self.component_info.contains_key(type_id) {
                 self.component_info.insert(
@@ -216,10 +215,6 @@ impl StorageLookup {
                     .data()
                     .iter()
                 {
-                    println!(
-                        "CONDERING ARCHETYPE: {:?}",
-                        component_archetype_info.archetype_index
-                    );
                     // Reset the data so it's not used in multiple matches.
                     archetype_match.channels = [None; REQUIREMENT_COUNT];
                     archetype_match.resource_indices = [None; REQUIREMENT_COUNT];
