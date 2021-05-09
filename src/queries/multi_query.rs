@@ -150,11 +150,11 @@ macro_rules! query_impl{
 
         }
 
-        impl<'a, WORLD: WorldTrait, $($name: QueryParameter),*> QueryTrait<'a, WORLD> for Query<'_, ($($name,)*)> {
+        impl<'a, $($name: QueryParameter),*> QueryTrait<'a> for Query<'_, ($($name,)*)> {
             type Result = Option<Query<'a, ($($name,)*)>>;
 
             #[allow(non_snake_case)]
-            fn get_query(world: &'a WORLD, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+            fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
                 let mut archetype_borrows = Vec::with_capacity(query_info.archetypes.len());
                 for archetype_info in &query_info.archetypes {
                     let archetype = world.borrow_archetype(archetype_info.archetype_index);
@@ -175,9 +175,9 @@ macro_rules! query_impl{
         // It almost seems like there might be a way to make this more generic.
         // I think these implementations could be made totally generic by making QueryParameters
         // implement a way to get all type ids.
-        impl<'a, WORLD: WorldTrait, $($name: QueryParameter), *> GetQueryInfoTrait<WORLD> for Query<'a, ($($name,)*)> {
+        impl<'a, $($name: QueryParameter), *> GetQueryInfoTrait for Query<'a, ($($name,)*)> {
             type QueryInfo = QueryInfo<$count>;
-            fn query_info(world: &WORLD) -> Result<Self::QueryInfo, Error> {
+            fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
                 let type_ids: [Filter; $count] = [
                     $($name::filter()),*
                 ];
@@ -394,7 +394,7 @@ pub struct EntityCloneIter<'a> {
 impl<'a> Iterator for EntityCloneIter<'a> {
     type Item = Entity;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|e| e.clone())
+        self.iter.next().map(|e| e.clone_entity())
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

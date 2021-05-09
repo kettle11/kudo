@@ -1,5 +1,8 @@
 use crate::*;
-use std::any::{Any, TypeId};
+use std::{
+    any::{Any, TypeId},
+    sync::Arc,
+};
 //use std::sync::atomic::AtomicUsize;
 use std::sync::RwLock;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
@@ -108,55 +111,54 @@ impl Archetype {
         self.entities.get_mut().unwrap().swap_remove(index);
     }
 
-    pub(crate) fn push_new_channel<T: Sync + Send + 'static>(&mut self) {
-        self.channels.push(ComponentChannelStorage::new::<T>())
+    pub(crate) fn push_new_channel<T: Sync + Send + 'static>(
+        &mut self,
+        cloner: Option<Arc<dyn ClonerTrait>>,
+    ) {
+        self.channels
+            .push(ComponentChannelStorage::new::<T>(cloner))
     }
 }
 
 // This may be used later when scheduling.
 // static CHANNEL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-pub trait ComponentStorageTrait {
-    // fn new<T: ComponentTrait>() -> Self;
-    fn new_same_type(&self) -> Self;
-    fn get_type_id(&self) -> TypeId;
-    fn channel_mut(&mut self) -> &mut dyn ComponentChannelTrait;
-    fn channel(&self) -> &dyn ComponentChannelTrait;
-}
-
 pub struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
     //  pub(crate) channel_id: usize,
     pub(crate) component_channel: Box<dyn ComponentChannelTrait>,
+    pub(crate) cloner: Option<Arc<dyn ClonerTrait>>,
 }
 
-impl ComponentStorageTrait for ComponentChannelStorage {
-    fn new_same_type(&self) -> ComponentChannelStorage {
+impl ComponentChannelStorage {
+    pub(crate) fn new_same_type(&self) -> ComponentChannelStorage {
         Self {
             type_id: self.type_id,
             component_channel: self.component_channel.new_same_type(),
+            cloner: self.cloner.clone(),
             // channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
         }
     }
-    fn channel_mut(&mut self) -> &mut dyn ComponentChannelTrait {
+    pub(crate) fn channel_mut(&mut self) -> &mut dyn ComponentChannelTrait {
         &mut *self.component_channel
     }
 
-    fn channel(&self) -> &dyn ComponentChannelTrait {
+    pub(crate) fn channel(&self) -> &dyn ComponentChannelTrait {
         &*self.component_channel
     }
 
-    fn get_type_id(&self) -> TypeId {
+    pub(crate) fn get_type_id(&self) -> TypeId {
         self.type_id
     }
 }
 
 impl ComponentChannelStorage {
-    pub(crate) fn new<T: ComponentTrait>() -> Self {
+    pub(crate) fn new<T: ComponentTrait>(cloner: Option<Arc<dyn ClonerTrait>>) -> Self {
         Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             // channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
             type_id: TypeId::of::<T>(),
+            cloner,
         }
     }
 }

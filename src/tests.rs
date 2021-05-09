@@ -267,8 +267,8 @@ fn generic_query() {
     let mut world = World::new();
     world.spawn((false,));
 
-    fn test_system<WORLD: WorldTrait, Q: for<'a> QueryTrait<'a, WORLD>>(q: Q) {}
-    test_system::<World, Query<(&bool,)>>.run(&world).unwrap();
+    fn test_system<Q: for<'a> QueryTrait<'a>>(q: Q) {}
+    test_system::<Query<(&bool,)>>.run(&world).unwrap();
 }
 
 #[test]

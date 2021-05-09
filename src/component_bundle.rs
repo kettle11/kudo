@@ -4,8 +4,8 @@ use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
 pub trait ComponentBundle: ComponentTrait {
     /// For now this only works correctly for empty entities.
-    fn add_to_entity(self, world: &mut ArchetypeWorld, entity: Entity);
-    fn spawn_in_world(self, world: &mut ArchetypeWorld) -> Entity;
+    fn add_to_entity(self, world: &mut World, entity: &Entity);
+    fn spawn_in_world(self, world: &mut World) -> Entity;
 }
 
 // This macro is a little funky because it needs to reorder insert based on `TypeId`s.
@@ -16,7 +16,7 @@ macro_rules! component_bundle_impl {
         impl< $($name: ComponentTrait),*> ComponentBundle for ($($name,)*) {
 
             /// For now this only works if the Entity has no components.
-            fn add_to_entity(self, world: &mut ArchetypeWorld, entity: Entity) {
+            fn add_to_entity(self, world: &mut World, entity: &Entity) {
                 let mut type_ids_and_order = [$(($index, TypeId::of::<$name>())), *];
 
                 debug_assert!(
@@ -34,7 +34,7 @@ macro_rules! component_bundle_impl {
 
                         let mut new_archetype = Archetype::new();
                         // Insert each channel
-                        $(new_archetype.push_new_channel::<$name>();)*
+                        $(new_archetype.push_new_channel::<$name>(world.cloners.get(&type_ids[$index]).cloned());)*
                         // Sort the channels
                         new_archetype.sort_channels();
 
@@ -52,7 +52,7 @@ macro_rules! component_bundle_impl {
                 $(archetype.get_channel_mut(order[$index]).push(self.$index);)*
 
                 let index_within_archetype = archetype.entities.get_mut().unwrap().len();
-                archetype.entities.get_mut().unwrap().push(entity.clone());
+                archetype.entities.get_mut().unwrap().push(entity.clone_entity());
 
                 let entity_location = world.entities.get_at_index_mut(entity.index);
 
@@ -64,9 +64,9 @@ macro_rules! component_bundle_impl {
                 });
             }
 
-            fn spawn_in_world(self, world: &mut ArchetypeWorld) -> Entity {
+            fn spawn_in_world(self, world: &mut World) -> Entity {
                 let new_entity = world.entities.new_entity_handle();
-                self.add_to_entity(world, new_entity.clone());
+                self.add_to_entity(world, &new_entity);
                 new_entity
             }
         }
