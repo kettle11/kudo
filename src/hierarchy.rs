@@ -78,6 +78,7 @@ impl World {
 
         if add_hierarchy_to_parent {
             let parent = parent.clone().unwrap();
+
             self.add_component(
                 &parent,
                 HierarchyNode {

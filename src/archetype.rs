@@ -28,6 +28,41 @@ impl Archetype {
         self.entities.read().unwrap()
     }
 
+    /// Clones the channels that can be cloned.
+    pub(crate) fn clone_archetype(
+        &mut self,
+        entity_migrator: &mut EntityMigrator,
+        entities: &mut Entities,
+    ) -> Archetype {
+        let mut archetype = Archetype::new();
+        for old_channel_storage in &mut self.channels {
+            let ComponentChannelStorage {
+                cloner,
+                component_channel,
+                ..
+            } = old_channel_storage;
+            if let Some(cloner) = cloner {
+                let component_channel = cloner.clone_channel(component_channel.as_mut());
+                let channel_storage = ComponentChannelStorage {
+                    type_id: old_channel_storage.type_id,
+                    component_channel,
+                    cloner: Some(cloner.clone()),
+                };
+                archetype.channels.push(channel_storage)
+            }
+        }
+
+        let new_entities = self
+            .entities
+            .get_mut()
+            .unwrap()
+            .iter()
+            .map(|e| entity_migrator.get_or_create(e, entities))
+            .collect();
+        *archetype.entities.get_mut().unwrap() = new_entities;
+        archetype
+    }
+
     /// Directly access the channel
     pub(crate) fn get_channel_mut<T: 'static>(&mut self, channel_index: usize) -> &mut Vec<T> {
         // self.channels[channel_index].component_channel.print_type();
@@ -203,5 +238,44 @@ impl<T: ComponentTrait> ComponentChannelTrait for RwLock<Vec<T>> {
             .get_mut()
             .unwrap();
         other.push(data);
+    }
+}
+
+pub(crate) trait ClonerTrait: Send + Sync {
+    fn clone_within(&self, clone_from_index: usize, channel: &dyn ComponentChannelTrait);
+    fn clone_channel(
+        &self,
+        channel: &mut dyn ComponentChannelTrait,
+    ) -> Box<dyn ComponentChannelTrait>;
+}
+
+#[derive(Clone)]
+pub(crate) struct Cloner<T> {
+    pub phantom: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<T: Clone + 'static + Send + Sync> ClonerTrait for Cloner<T> {
+    fn clone_within(&self, clone_from_index: usize, channel: &dyn ComponentChannelTrait) {
+        let mut channel = channel
+            .as_any()
+            .downcast_ref::<RwLock<Vec<T>>>()
+            .unwrap()
+            .try_write()
+            .unwrap();
+        let t = channel[clone_from_index].clone();
+        channel.push(t)
+    }
+
+    fn clone_channel(
+        &self,
+        channel: &mut dyn ComponentChannelTrait,
+    ) -> Box<dyn ComponentChannelTrait> {
+        let channel = channel
+            .as_any_mut()
+            .downcast_mut::<RwLock<Vec<T>>>()
+            .unwrap()
+            .get_mut()
+            .unwrap();
+        Box::new(RwLock::new(channel.clone()))
     }
 }

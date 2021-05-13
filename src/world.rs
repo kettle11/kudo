@@ -1,4 +1,8 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use crate::*;
 
@@ -10,22 +14,6 @@ pub struct World {
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
     pub(crate) cloners: HashMap<TypeId, Arc<dyn ClonerTrait>>,
-}
-
-pub(crate) trait ClonerTrait: Send + Sync {
-    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype);
-}
-
-#[derive(Clone)]
-struct Cloner<T> {
-    phantom: std::marker::PhantomData<fn() -> T>,
-}
-
-impl<T: Clone + 'static> ClonerTrait for Cloner<T> {
-    fn clone_within(&self, index: usize, channel: usize, archetype: &mut Archetype) {
-        let channel = archetype.get_channel_mut::<T>(channel);
-        channel.push(channel[index].clone())
-    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -75,7 +63,7 @@ impl World {
         }
     }
 
-    pub fn register_clone_type<T: Clone + 'static>(&mut self) {
+    pub fn register_clone_type<T: Clone + 'static + Send + Sync>(&mut self) {
         self.cloners.insert(
             TypeId::of::<T>(),
             Arc::new(Cloner::<T> {
@@ -132,7 +120,10 @@ impl World {
         }
 
         for (channel, cloner) in cloners {
-            cloner.clone_within(entity_location.index_within_archetype, channel, archetype)
+            cloner.clone_within(
+                entity_location.index_within_archetype,
+                archetype.channels[channel].channel(),
+            )
         }
 
         let new_entity = self.entities.new_entity_handle();
@@ -377,7 +368,6 @@ impl World {
                 }
 
                 is_new_archetype = true;
-                // New channel insertion is deferred until later to allow variation between `CloneableWorld` and `World`.
                 self.push_archetype(new_archetype, &type_ids)
             }
         };
@@ -450,13 +440,6 @@ impl World {
             .index;
 
         {
-            // Update the location of the entity
-            let location = self.entities.get_at_index_mut(entity.index);
-            *location = Some(EntityLocation {
-                archetype_index: second_archetype,
-                index_within_archetype: new_archetype.entities.get_mut().unwrap().len(),
-            });
-
             // Update the location of the swapped entity.
             let swapped_entity_location = self
                 .entities
@@ -464,6 +447,13 @@ impl World {
                 .as_mut()
                 .unwrap();
             swapped_entity_location.index_within_archetype = entity_index_within_archetype;
+
+            // Update the location of the entity
+            let location = self.entities.get_at_index_mut(entity.index);
+            *location = Some(EntityLocation {
+                archetype_index: second_archetype,
+                index_within_archetype: new_archetype.entities.get_mut().unwrap().len(),
+            });
         }
 
         old_archetype
@@ -489,6 +479,62 @@ impl World {
             self.clone_hierarchy(entity, None, None)
         } else {
             self.clone_entity_inner(entity)
+        }
+    }
+
+    pub fn add_world_to_world(&mut self, other: &mut World) {
+        let mut entity_migrator = EntityMigrator::new(&mut other.entities);
+        let mut type_ids = Vec::new();
+
+        // For each `Archetype` find a new `Archetype` and then migrate entities to it.
+        for archetype in &mut other.archetypes {
+            type_ids.clear();
+            for channel in &archetype.channels {
+                if channel.cloner.is_some() {
+                    type_ids.push(channel.type_id)
+                }
+            }
+            if let Some(archetype_index) =
+                self.storage_lookup.get_archetype_with_components(&type_ids)
+            {
+                // Append the archetype to this archetype
+                todo!()
+            } else {
+                // Create a new archetype from the old one.
+                let new_archetype =
+                    archetype.clone_archetype(&mut entity_migrator, &mut self.entities);
+                self.push_archetype(new_archetype, &type_ids);
+            }
+        }
+    }
+}
+
+pub(crate) struct EntityMigrator {
+    /// New entities indexed with the index of the old entities.
+    new_entities: Vec<Option<Entity>>,
+}
+impl EntityMigrator {
+    pub fn new(old_entities: &mut Entities) -> Self {
+        let mut new_entities = Vec::new();
+        new_entities.resize_with(
+            old_entities
+                .inner
+                .get_mut()
+                .unwrap()
+                .generation_and_location
+                .len(),
+            || None,
+        );
+        Self { new_entities }
+    }
+
+    pub fn get_or_create(&mut self, entity_old: &Entity, entities: &mut Entities) -> Entity {
+        if let Some(entity) = &self.new_entities[entity_old.index] {
+            entity.clone_entity()
+        } else {
+            let new_handle = entities.new_entity_handle();
+            self.new_entities[entity_old.index] = Some(new_handle.clone_entity());
+            new_handle
         }
     }
 }

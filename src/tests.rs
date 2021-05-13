@@ -326,3 +326,16 @@ fn empty_archetype() {
     let entity = world.spawn((true,));
     world.remove_component::<bool>(&entity);
 }
+
+#[test]
+fn add_world_to_world() {
+    use crate::*;
+    let mut world0 = World::new();
+    world0.register_clone_type::<bool>();
+    world0.spawn((true,));
+
+    let mut world1 = World::new();
+    world1.add_world_to_world(&mut world0);
+
+    assert!(world1.query::<(&bool,)>().unwrap().iter().count() == 1);
+}
