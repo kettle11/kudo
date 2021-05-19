@@ -1,8 +1,4 @@
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use crate::*;
 
@@ -494,7 +490,7 @@ impl World {
                     type_ids.push(channel.type_id)
                 }
             }
-            if let Some(archetype_index) =
+            if let Some(_archetype_index) =
                 self.storage_lookup.get_archetype_with_components(&type_ids)
             {
                 // Append the archetype to this archetype

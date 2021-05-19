@@ -24,8 +24,9 @@ pub trait FunctionSystem<'world_borrow, RETURN: 'world_borrow, Params>: Sized {
     fn system_info(&self, world: &World) -> Result<SystemInfo, Error>;
 }
 
-pub trait IntoSystem<P, R> {
+pub trait IntoSystem<P, R>: for<'world_borrow> FunctionSystem<'world_borrow, R, P> {
     fn box_system(self) -> Box<dyn FnMut(&World) -> Result<R, Error> + Send + Sync>;
+    fn box_exclusive_system(self) -> Box<dyn FnMut(&mut World) -> Result<R, Error> + Send + Sync>;
 }
 
 impl<P, R, S: for<'a> FunctionSystem<'a, R, P> + Sync + Send + 'static + Copy> IntoSystem<P, R>
@@ -33,6 +34,10 @@ impl<P, R, S: for<'a> FunctionSystem<'a, R, P> + Sync + Send + 'static + Copy> I
 {
     fn box_system(self) -> Box<dyn FnMut(&World) -> Result<R, Error> + Send + Sync> {
         Box::new(move |world| self.run(world))
+    }
+
+    fn box_exclusive_system(self) -> Box<dyn FnMut(&mut World) -> Result<R, Error> + Send + Sync> {
+        Box::new(move |world| self.run_exclusive(world))
     }
 }
 

@@ -11,6 +11,8 @@ impl EntitiesInner {
     pub fn new_handle(&mut self) -> Entity {
         if let Some(index) = self.free_entity_indices.pop() {
             let generation_and_location = &mut self.generation_and_location[index];
+            generation_and_location.1 = None;
+
             // We don't need to increment the generation here
             // because it was already incremented when the previous entity was freed.
             Entity {
