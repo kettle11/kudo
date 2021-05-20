@@ -661,10 +661,10 @@ impl<'a, T: 'static> GetComponentMut<'a> for RwLockWriteGuard<'_, Vec<T>> {
 
 // A ReadGuard cannot mutably get a component.
 impl<'a, T: 'static> GetComponentMut<'a> for RwLockReadGuard<'_, Vec<T>> {
-    type Component = Option<&'a mut T>;
+    type Component = &'a T;
 
-    fn get_components_mut(&'a mut self, _index: usize) -> Self::Component {
-        None
+    fn get_components_mut(&'a mut self, index: usize) -> Self::Component {
+        &self[index]
     }
 
     fn get_component_mut<A: 'static>(&mut self, _index: usize) -> Option<&mut A> {
