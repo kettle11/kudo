@@ -12,7 +12,7 @@ pub struct World {
     pub(crate) cloners: HashMap<TypeId, Arc<dyn ClonerTrait>>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Hash, Eq)]
 pub struct Entity {
     pub(crate) index: usize,
     pub(crate) generation: usize,

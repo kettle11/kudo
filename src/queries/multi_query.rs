@@ -430,6 +430,32 @@ impl<'a> Iterator for EntityCloneIter<'a> {
 
 impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T>
 where
+    <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetIterator<'b>,
+{
+    pub fn entities_and_components(
+        &'b self,
+    ) -> ChainedIterator<
+        Zip<
+            EntityCloneIter<'b>,
+            <<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetIterator<'b>>::Iter,
+        >,
+    > {
+        ChainedIterator::new(
+            self.archetype_borrows
+                .iter()
+                .map(|i| {
+                    EntityCloneIter {
+                        iter: i.entities.iter(),
+                    }
+                    .zip(i.component_borrows.get_iter())
+                })
+                .collect(),
+        )
+    }
+}
+
+impl<'a: 'b, 'b, T: 'b + QueryParameters> Query<'a, T>
+where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetIteratorMut<'b>,
 {
     pub fn entities_and_components_mut(
@@ -684,5 +710,19 @@ impl<'a, G: GetComponentMut<'a> + 'a> GetComponentMut<'a> for Option<G> {
         self.as_mut()
             .map(|v| v.get_component_mut::<A>(index))
             .flatten()
+    }
+}
+
+impl<'world_borrow, Q: QueryParameters> Query<'world_borrow, Q> {
+    pub fn split<'a, Q0: QueryParameters, Q1: QueryParameters>(
+        &'a self,
+    ) -> Option<(Query<'a, Q0>, Query<'a, Q1>)> {
+        todo!()
+    }
+
+    pub fn split_mut<'a, Q0: QueryParameters, Q1: QueryParameters>(
+        &'a mut self,
+    ) -> Option<(Query<'a, Q0>, Query<'a, Q1>)> {
+        todo!()
     }
 }
