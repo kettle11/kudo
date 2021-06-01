@@ -22,6 +22,15 @@ impl Entity {
     pub fn index(&self) -> usize {
         self.index
     }
+
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// Useful when storing an `Entity` handle in another library for reconstruction later.
+    pub fn from_index_and_generation(index: usize, generation: usize) -> Self {
+        Self { index, generation }
+    }
 }
 
 impl EntityClone for Entity {

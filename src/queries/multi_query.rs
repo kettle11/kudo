@@ -41,6 +41,7 @@ pub trait QueryParametersBorrow<'a> {
     type ComponentBorrows;
 }
 
+/// A chunk of data borrowed from an Archetype.
 pub struct ArchetypeBorrow<'a, T> {
     /// A tuple of individual components.
     component_borrows: T,
