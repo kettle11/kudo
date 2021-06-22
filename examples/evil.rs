@@ -8,7 +8,7 @@ use kudo::*;
 fn main() {
     let mut world = World::new();
     let first_entity = world.spawn((true,));
-    world.despawn(&first_entity).unwrap();
+    world.despawn(first_entity).unwrap();
 
     // For this test the generation is stored with just a u8.
     // 128 because kudo increments generation on remove.
@@ -16,10 +16,10 @@ fn main() {
         let entity = world.spawn((true,));
 
         if i != 127 {
-            world.despawn(&entity).unwrap();
+            world.despawn(entity).unwrap();
         }
     }
 
     // This unwrap should panic, but it does not!
-    world.despawn(&first_entity).unwrap();
+    world.despawn(first_entity).unwrap();
 }

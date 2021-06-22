@@ -114,12 +114,12 @@ fn add_component0() {
     let entity = world.spawn((1 as i32,));
     println!("HERE");
 
-    world.add_component(&entity, true);
+    world.add_component(entity, true);
     let result = (|q: Query<(&i32, &bool)>| -> bool { *q.iter().next().unwrap().1 })
         .run(&world)
         .unwrap();
 
-    world.add_component(&entity, true);
+    world.add_component(entity, true);
 
     assert!(result == true);
 }
@@ -131,12 +131,12 @@ fn add_component1() {
     let mut world = World::new();
 
     let entity = world.spawn((true,));
-    world.add_component(&entity, 10 as i32);
+    world.add_component(entity, 10 as i32);
     let result = (|q: Query<(&i32, &bool)>| -> bool { *q.iter().next().unwrap().1 })
         .run(&world)
         .unwrap();
 
-    world.add_component(&entity, true);
+    world.add_component(entity, true);
 
     assert!(result == true);
 }
@@ -147,7 +147,7 @@ fn remove_component0() {
 
     let mut world = World::new();
     let entity = world.spawn((1 as i32, true));
-    assert!(world.remove_component::<bool>(&entity) == Some(true));
+    assert!(world.remove_component::<bool>(entity) == Some(true));
 }
 
 #[test]
@@ -235,8 +235,8 @@ fn get_component_mut() {
 
     let mut query = world.query::<(&f32, &mut bool)>().unwrap();
 
-    assert!(query.get_component_mut::<f32>(&entity).is_none());
-    assert!(query.get_component_mut::<bool>(&entity).is_some());
+    assert!(query.get_component_mut::<f32>(entity).is_none());
+    assert!(query.get_component_mut::<bool>(entity).is_some());
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn get_component_fail() {
     let mut world = World::new();
     let entity = world.spawn((10 as f32,));
     let query = world.query::<(&f32,)>().unwrap();
-    assert!(query.get_component::<bool>(&entity).is_none());
+    assert!(query.get_component::<bool>(entity).is_none());
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn clone() {
     let mut world = World::new();
     world.register_clone_type::<bool>();
     let entity = world.spawn((false,));
-    world.clone_entity(&entity).unwrap();
+    world.clone_entity(entity).unwrap();
     assert!(world.query::<(&bool,)>().unwrap().iter().count() == 2);
 }
 
@@ -287,7 +287,7 @@ fn fail_to_clone() {
     use crate::*;
     let mut world = World::new();
     let entity = world.spawn((false,));
-    assert!(world.clone_entity(&entity).is_none());
+    assert!(world.clone_entity(entity).is_none());
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn hierarchy() {
     let parent = world.spawn((0,));
     let child = world.spawn((1,));
 
-    world.set_parent(Some(&parent), &child);
+    world.set_parent(Some(parent), child);
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn despawn() {
     use crate::*;
     let mut world = World::new();
     let entity = world.spawn((0,));
-    world.despawn(&entity).unwrap();
+    world.despawn(entity).unwrap();
 }
 
 #[test]
@@ -315,8 +315,8 @@ fn hierarchy_despawn() {
     let parent = world.spawn((0,));
     let child = world.spawn((1,));
 
-    world.set_parent(Some(&parent), &child);
-    world.despawn(&parent).unwrap();
+    world.set_parent(Some(parent), child);
+    world.despawn(parent).unwrap();
 }
 
 #[test]
@@ -324,9 +324,10 @@ fn empty_archetype() {
     use crate::*;
     let mut world = World::new();
     let entity = world.spawn((true,));
-    world.remove_component::<bool>(&entity);
+    world.remove_component::<bool>(entity);
 }
 
+/*
 #[test]
 fn add_world_to_world() {
     use crate::*;
@@ -339,3 +340,4 @@ fn add_world_to_world() {
 
     assert!(world1.query::<(&bool,)>().unwrap().iter().count() == 1);
 }
+*/

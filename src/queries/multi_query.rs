@@ -421,7 +421,7 @@ pub struct EntityCloneIter<'a> {
 impl<'a> Iterator for EntityCloneIter<'a> {
     type Item = Entity;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|e| e.clone_entity())
+        self.iter.next().copied()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -558,7 +558,7 @@ impl<'a, 'b, T: QueryParameters> Query<'a, T>
 where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponent<'b>,
 {
-    pub fn get_component<A: 'static>(&self, entity: &Entity) -> Option<&A> {
+    pub fn get_component<A: 'static>(&self, entity: Entity) -> Option<&A> {
         let entity = self.entities.get_location(entity)??;
         let archetype = self
             .archetype_borrows
@@ -573,7 +573,7 @@ where
     /// Gets all components from this `Query` for a specific Entity.
     pub fn get_entity_components(
         &'b self,
-        entity: &Entity,
+        entity: Entity,
     ) -> Option<<<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetComponent<'b>>::Component>
     {
         let entity = self.entities.get_location(entity)??;
@@ -594,7 +594,7 @@ impl<'a, 'b, T: QueryParameters> Query<'a, T>
 where
     <T as QueryParametersBorrow<'a>>::ComponentBorrows: GetComponentMut<'b>,
 {
-    pub fn get_component_mut<A: 'static>(&mut self, entity: &Entity) -> Option<&mut A> {
+    pub fn get_component_mut<A: 'static>(&mut self, entity: Entity) -> Option<&mut A> {
         let entity = self.entities.get_location(entity)??;
         let archetype = self
             .archetype_borrows
@@ -609,7 +609,7 @@ where
     /// Gets all components from this `Query` for a specific Entity.
     pub fn get_entity_components_mut(
         &'b mut self,
-        entity: &Entity,
+        entity: Entity,
     ) -> Option<
         <<T as QueryParametersBorrow<'a>>::ComponentBorrows as GetComponentMut<'b>>::Component,
     > {

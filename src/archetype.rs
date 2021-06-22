@@ -32,8 +32,7 @@ impl Archetype {
     pub(crate) fn clone_archetype(
         &mut self,
         entity_migrator: &mut EntityMigrator,
-        entities: &mut Entities,
-    ) -> Archetype {
+    ) -> Option<Archetype> {
         let mut archetype = Archetype::new();
         for old_channel_storage in &mut self.channels {
             let ComponentChannelStorage {
@@ -57,10 +56,35 @@ impl Archetype {
             .get_mut()
             .unwrap()
             .iter()
-            .map(|e| entity_migrator.get_or_create(e, entities))
+            .map(|e| entity_migrator.migrate(*e))
             .collect();
         *archetype.entities.get_mut().unwrap() = new_entities;
-        archetype
+        Some(archetype)
+    }
+
+    /// Move all components from `other_archetype` into `self`
+    pub(crate) fn append_archetype(
+        &mut self,
+        other_archetype: &mut Archetype,
+        entity_migrator: &mut EntityMigrator,
+    ) {
+        for (new_channel, old_channel) in self
+            .channels
+            .iter_mut()
+            .zip(other_archetype.channels.iter_mut())
+        {
+            new_channel
+                .channel_mut()
+                .append_channel(old_channel.channel_mut())
+        }
+
+        let self_entities = self.entities.get_mut().unwrap();
+        let other_entities = other_archetype.entities.get_mut().unwrap();
+        self_entities.reserve(other_entities.len());
+        for entity in other_entities {
+            let migrated_entity = entity_migrator.migrate(*entity);
+            self_entities.push(migrated_entity);
+        }
     }
 
     /// Directly access the channel
@@ -205,6 +229,7 @@ pub trait ComponentChannelTrait: Send + Sync {
     fn migrate_component(&mut self, index: usize, other: &mut dyn ComponentChannelTrait);
     fn swap_remove(&mut self, index: usize);
     fn print_type(&self);
+    fn append_channel(&mut self, other: &mut dyn ComponentChannelTrait);
 }
 
 impl<T: ComponentTrait> ComponentChannelTrait for RwLock<Vec<T>> {
@@ -238,6 +263,16 @@ impl<T: ComponentTrait> ComponentChannelTrait for RwLock<Vec<T>> {
             .get_mut()
             .unwrap();
         other.push(data);
+    }
+
+    fn append_channel(&mut self, other: &mut dyn ComponentChannelTrait) {
+        let other = other
+            .as_any_mut()
+            .downcast_mut::<RwLock<Vec<T>>>()
+            .unwrap()
+            .get_mut()
+            .unwrap();
+        self.get_mut().unwrap().append(other);
     }
 }
 

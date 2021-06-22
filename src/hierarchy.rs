@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HierarchyNode {
     pub(crate) parent: Option<Entity>,
     pub(crate) last_child: Option<Entity>,
@@ -24,25 +24,25 @@ impl HierarchyNode {
 
     pub fn clone_hierarchy(&self) -> Self {
         Self {
-            parent: self.parent.clone_entity(),
-            last_child: self.last_child.clone_entity(),
-            next_sibling: self.next_sibling.clone_entity(),
-            previous_sibling: self.previous_sibling.clone_entity(),
+            parent: self.parent,
+            last_child: self.last_child,
+            next_sibling: self.next_sibling,
+            previous_sibling: self.previous_sibling,
         }
     }
 }
 
 impl World {
-    pub fn set_parent(&mut self, parent: Option<&Entity>, child: &Entity) {
+    pub fn set_parent(&mut self, parent: Option<Entity>, child: Entity) {
         let mut add_hierarchy_to_parent = false;
         let mut add_hierarchy_to_child = false;
 
         let previous_last_child = {
-            if let Some(parent) = &parent {
+            if let Some(parent) = parent {
                 // Check if a HierarchyNode exists on the parent, otherwise create one.
                 if let Some(parent_hierarchy) = self.get_component_mut::<HierarchyNode>(parent) {
-                    let previous_last_child = parent_hierarchy.last_child.clone_entity();
-                    parent_hierarchy.last_child = Some(child.clone_entity());
+                    let previous_last_child = parent_hierarchy.last_child;
+                    parent_hierarchy.last_child = Some(child);
                     previous_last_child
                 } else {
                     add_hierarchy_to_parent = true;
@@ -54,12 +54,12 @@ impl World {
         };
 
         // Connect the previous child to the new child.
-        if let Some(previous_last_child) = previous_last_child.as_ref() {
+        if let Some(previous_last_child) = previous_last_child {
             let previous_last_child = self
                 .get_component_mut::<HierarchyNode>(previous_last_child)
                 .unwrap();
 
-            previous_last_child.next_sibling = Some(child.clone_entity());
+            previous_last_child.next_sibling = Some(child);
         }
 
         let mut old_parent = None;
@@ -67,10 +67,10 @@ impl World {
         // Connect the child with its new siblings
         // Create a HierarchyComponent if the child doesn't have one.
         if let Some(child) = self.get_component_mut::<HierarchyNode>(child) {
-            old_parent = child.parent.clone_entity();
+            old_parent = child.parent;
 
-            child.parent = parent.map(|e| e.clone_entity()).clone_entity();
-            child.previous_sibling = previous_last_child.clone_entity();
+            child.parent = parent.map(|e| e);
+            child.previous_sibling = previous_last_child;
             child.next_sibling = None;
         } else {
             add_hierarchy_to_child = true;
@@ -80,10 +80,10 @@ impl World {
             let parent = parent.clone().unwrap();
 
             self.add_component(
-                &parent,
+                parent,
                 HierarchyNode {
                     parent: None,
-                    last_child: Some(child.clone_entity()),
+                    last_child: Some(child),
                     next_sibling: None,
                     previous_sibling: None,
                 },
@@ -95,7 +95,7 @@ impl World {
             self.add_component(
                 child,
                 HierarchyNode {
-                    parent: parent.map(|e| e.clone_entity()),
+                    parent: parent.map(|e| e),
                     previous_sibling: previous_last_child,
                     next_sibling: None,
                     last_child: None,
@@ -105,41 +105,38 @@ impl World {
 
         // Remove the entity from its old parent, if it has one.
         if let Some(old_parent) = old_parent {
-            self.remove_child(&old_parent, &child).unwrap()
+            self.remove_child(old_parent, child).unwrap()
         }
     }
 
-    fn remove_child(&mut self, parent: &Entity, child: &Entity) -> Result<(), ()> {
+    fn remove_child(&mut self, parent: Entity, child: Entity) -> Result<(), ()> {
         let (previous, next) = {
             let child = self.get_component_mut::<HierarchyNode>(child).ok_or(())?;
 
-            if child.parent != Some(parent.clone_entity()) {
+            if child.parent != Some(parent) {
                 return Err(());
             }
 
-            let (previous, next) = (
-                child.previous_sibling.clone_entity(),
-                child.next_sibling.clone_entity(),
-            );
+            let (previous, next) = (child.previous_sibling, child.next_sibling);
             child.previous_sibling = None;
             child.next_sibling = None;
             child.parent = None;
             (previous, next)
         };
 
-        if let Some(previous) = previous.as_ref() {
+        if let Some(previous) = previous {
             let previous = self.get_component_mut::<HierarchyNode>(previous).unwrap();
-            previous.next_sibling = next.clone_entity();
+            previous.next_sibling = next;
         }
 
-        if let Some(next) = next.as_ref() {
+        if let Some(next) = next {
             let next = self.get_component_mut::<HierarchyNode>(next).unwrap();
             next.previous_sibling = previous;
         } else {
             // We're removing the last child, so update the parent.
             let parent = self.get_component_mut::<HierarchyNode>(parent).unwrap();
 
-            parent.last_child = previous.clone_entity();
+            parent.last_child = previous;
         }
 
         Ok(())
