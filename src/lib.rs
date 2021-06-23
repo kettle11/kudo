@@ -9,6 +9,7 @@ mod queries;
 mod world;
 
 use archetype::*;
+pub use archetype::{EntityMigrator, WorldClone};
 pub use component_bundle::*;
 use entities::*;
 pub use error::*;

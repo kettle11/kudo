@@ -49,89 +49,6 @@ impl World {
         }
     }
 
-    pub fn register_clone_type<T: Clone + 'static + Send + Sync>(&mut self) {
-        self.cloners.insert(
-            TypeId::of::<T>(),
-            Arc::new(Cloner::<T> {
-                phantom: std::marker::PhantomData,
-            }),
-        );
-    }
-
-    fn clone_hierarchy(
-        &mut self,
-        entity_to_clone: Entity,
-        new_parent: Option<Entity>,
-        new_next_sibling: Option<Entity>,
-    ) -> Option<Entity> {
-        let new_entity = self.clone_entity_inner(entity_to_clone)?;
-
-        if let Some(node) = self
-            .get_component_mut::<HierarchyNode>(entity_to_clone)
-            .map(|h| h.clone_hierarchy())
-        {
-            let new_previous_sibling = if let Some(previous_sibling) = node.previous_sibling {
-                Some(self.clone_hierarchy(previous_sibling, new_parent, Some(new_entity))?)
-            } else {
-                None
-            };
-
-            let new_last_child = if let Some(last_child) = node.last_child {
-                Some(self.clone_hierarchy(last_child, Some(new_entity), None)?)
-            } else {
-                None
-            };
-
-            *self
-                .get_component_mut::<HierarchyNode>(entity_to_clone)
-                .unwrap() = HierarchyNode {
-                parent: new_parent,
-                previous_sibling: new_previous_sibling,
-                last_child: new_last_child,
-                next_sibling: new_next_sibling,
-            }
-        }
-
-        Some(new_entity)
-    }
-
-    fn clone_entity_inner(&mut self, entity: Entity) -> Option<Entity> {
-        let entity_location = self.entities.get_location(entity)??;
-
-        let archetype = &mut self.archetypes[entity_location.archetype_index];
-        let mut cloners = Vec::with_capacity(archetype.channels.len());
-
-        for (i, channel) in archetype.channels.iter().enumerate() {
-            cloners.push((i, self.cloners.get(&channel.type_id)?))
-        }
-
-        for (channel, cloner) in cloners {
-            cloner.clone_within(
-                entity_location.index_within_archetype,
-                archetype.channels[channel].channel(),
-            )
-        }
-
-        let new_entity = self.entities.new_entity_handle();
-        let index_within_archetype = archetype.entities.get_mut().unwrap().len();
-        archetype.entities.get_mut().unwrap().push(new_entity);
-
-        *self.entities.get_at_index_mut(new_entity.index) = Some(EntityLocation {
-            archetype_index: entity_location.archetype_index,
-            index_within_archetype,
-        });
-        Some(new_entity)
-    }
-
-    /*/
-    pub fn clone_into_empty_entity(&mut self, target: Entity, from: Entity) -> Option<()> {
-        //  self.clone_entity(entity)
-        //  let entity_location = self.entities.get_location(target)?;
-        //  assert!(entity_location.is_none());
-        //  self.entities.get_location(target.lo)
-        todo!()
-    }*/
-
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(self)
     }
@@ -443,91 +360,82 @@ impl World {
         new_archetype.entities.get_mut().unwrap().push(entity);
     }
 
-    /// Clones an `Entity` and returns a new `Entity`.
-    /// For now this will return `None` if any components can't be cloned.
-    /// If this Entity has child `Entity`s they will be recursively cloned as well.
-    pub fn clone_entity(&mut self, entity: Entity) -> Option<Entity> {
-        if self.get_component_mut::<HierarchyNode>(entity).is_some() {
-            // Hierarchies need special care when cloning
-            // because they will also clone child Entity's
-            self.clone_hierarchy(entity, None, None)
-        } else {
-            self.clone_entity_inner(entity)
-        }
-    }
-
-    pub fn add_world_to_world(&mut self, other: World) {
-        todo!()
-        /*
-        let mut entity_migrator = EntityMigrator::new(&mut other.entities);
-        let mut type_ids = Vec::new();
-
-        // For each `Archetype` find a new `Archetype` and then migrate entities to it.
+    pub fn add_world_to_world(&mut self, other: &mut World) {
+        let Self {
+            archetypes,
+            cloners,
+            storage_lookup,
+            entities,
+            ..
+        } = self;
+        let mut new_entities = HashMap::new();
         for old_archetype in &mut other.archetypes {
-            type_ids.clear();
-            for channel in &archetype.channels {
-                if channel.cloner.is_some() {
-                    type_ids.push(channel.type_id)
+            let mut entity_migrator = EntityMigrator::new(&mut new_entities, entities);
+
+            if let Some(new_archetype) = old_archetype.clone_archetype(&mut entity_migrator) {
+                let mut type_ids = old_archetype.type_ids();
+                type_ids.retain(|type_id| cloners.contains_key(type_id));
+
+                // Check if there is an existing archetype or not.
+                if let Some(archetype_index) =
+                    storage_lookup.get_archetype_with_components(&type_ids)
+                {
+                    // If there is an existing [Archetype] merge into that.
+                    archetypes[archetype_index].append_archetype(new_archetype);
+                } else {
+                    storage_lookup.new_archetype(archetypes.len(), &type_ids);
+                    archetypes.push(new_archetype);
                 }
             }
-            if let Some(new_archetype_index) =
-                self.storage_lookup.get_archetype_with_components(&type_ids)
-            {
-                // Append the archetype to this archetype
-                let new_archetype = self.archetypes[new_archetype_index].append_archetype(archetype, &mut entity_migrator, entities)
-            } else {
-                // Create a new archetype from the old one.
-                let new_archetype =
-                    old_archetype.clone_archetype(&mut entity_migrator, &mut self.entities);
-                self.push_archetype(new_archetype, &type_ids);
-            }
         }
-        */
     }
 
     /// This isn't the regular [Clone] trait because [World] needs exclusive access to be able to
     /// clone it.
     pub fn clone(&mut self) -> Self {
-        let entity_migrator = EntityMigrator::new(&mut self.entities);
+        let mut new_entities = HashMap::new();
+
+        let mut entities = Entities::new();
+
+        let cloners = self.cloners.clone();
         let mut archetypes: Vec<Archetype> = Vec::with_capacity(self.archetypes.len());
         let mut storage_lookup = StorageLookup::new();
 
-        for archetype in &self.archetypes {}
-        todo!()
-    }
-}
+        for archetype in &mut self.archetypes {
+            let mut entity_migrator = EntityMigrator::new(&mut new_entities, &mut entities);
 
-pub(crate) struct EntityMigrator {
-    /// New entities indexed with the index of the old entities.
-    new_entities: Vec<Option<Entity>>,
-    new_entities_manager: Entities,
-}
-impl EntityMigrator {
-    pub fn new(old_entities: &mut Entities) -> Self {
-        let mut new_entities = Vec::new();
-        new_entities.resize_with(
-            old_entities
-                .inner
-                .get_mut()
-                .unwrap()
-                .generation_and_location
-                .len(),
-            || None,
-        );
+            if let Some(new_archetype) = archetype.clone_archetype(&mut entity_migrator) {
+                let mut type_ids = archetype.type_ids();
+                type_ids.retain(|type_id| cloners.contains_key(type_id));
+
+                // Check if there is an existing archetype or not.
+                // This can happen if an `Archetype` contains components that cannot be cloned.
+                if let Some(archetype_index) =
+                    storage_lookup.get_archetype_with_components(&type_ids)
+                {
+                    // If there is an existing `Archetype` merge into that.
+                    archetypes[archetype_index].append_archetype(new_archetype);
+                } else {
+                    storage_lookup.new_archetype(archetypes.len(), &type_ids);
+                    archetypes.push(new_archetype)
+                }
+            }
+        }
         Self {
-            new_entities,
-            new_entities_manager: Entities::new(),
+            archetypes,
+            cloners,
+            entities,
+            storage_lookup,
         }
     }
 
-    pub fn migrate(&mut self, old_entity: Entity) -> Entity {
-        if let Some(entity) = self.new_entities[old_entity.index] {
-            entity
-        } else {
-            let new_handle = self.new_entities_manager.new_entity_handle();
-            self.new_entities[old_entity.index] = Some(new_handle);
-            new_handle
-        }
+    pub fn register_clone_type<T: WorldClone + 'static + Send + Sync>(&mut self) {
+        self.cloners.insert(
+            TypeId::of::<T>(),
+            Arc::new(Cloner::<T> {
+                phantom: std::marker::PhantomData,
+            }),
+        );
     }
 }
 
