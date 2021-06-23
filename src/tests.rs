@@ -349,10 +349,10 @@ fn add_world_to_world0() {
 
     let cloners = Arc::new(cloners);
     use crate::*;
-    let mut world0 = World::new_with_cloner(cloners.clone());
+    let mut world0 = World::new_with_cloners(cloners.clone());
     world0.spawn((true,));
 
-    let mut world1 = World::new_with_cloner(cloners.clone());
+    let mut world1 = World::new_with_cloners(cloners.clone());
     world1.add_world_to_world(&mut world0);
 
     assert!(world1.query::<(&bool,)>().unwrap().iter().count() == 1);
@@ -367,10 +367,10 @@ fn add_world_to_world1() {
 
     let cloners = Arc::new(cloners);
     use crate::*;
-    let mut world0 = World::new_with_cloner(cloners.clone());
+    let mut world0 = World::new_with_cloners(cloners.clone());
     world0.spawn((true,));
 
-    let mut world1 = World::new_with_cloner(cloners.clone());
+    let mut world1 = World::new_with_cloners(cloners.clone());
     world1.spawn((true,));
     world1.add_world_to_world(&mut world0);
 

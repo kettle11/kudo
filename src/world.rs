@@ -67,7 +67,7 @@ impl World {
         }
     }
 
-    pub fn new_with_cloner(cloners: Arc<Cloners>) -> Self {
+    pub fn new_with_cloners(cloners: Arc<Cloners>) -> Self {
         Self {
             archetypes: Vec::new(),
             entities: Entities::new(),
