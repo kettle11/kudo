@@ -271,10 +271,16 @@ fn generic_query() {
     test_system::<Query<(&bool,)>>.run(&world).unwrap();
 }
 
+/*
 #[test]
 fn clone() {
     use crate::*;
 
+    impl WorldClone for bool {
+        fn world_clone(&self, entity_migrator: &mut EntityMigrator) -> Self {
+            self.clone()
+        }
+    }
     let mut world = World::new();
     world.register_clone_type::<bool>();
     let entity = world.spawn((false,));
@@ -289,6 +295,7 @@ fn fail_to_clone() {
     let entity = world.spawn((false,));
     assert!(world.clone_entity(entity).is_none());
 }
+*/
 
 #[test]
 fn hierarchy() {
@@ -327,17 +334,45 @@ fn empty_archetype() {
     world.remove_component::<bool>(entity);
 }
 
-/*
 #[test]
-fn add_world_to_world() {
+fn add_world_to_world0() {
+    use std::sync::Arc;
+
+    impl WorldClone for bool {
+        fn world_clone(&self, _entity_migrator: &mut EntityMigrator) -> Self {
+            self.clone()
+        }
+    }
+
+    let mut cloners = Cloners::new();
+    cloners.register_clone_type::<bool>();
+
+    let cloners = Arc::new(cloners);
     use crate::*;
-    let mut world0 = World::new();
-    world0.register_clone_type::<bool>();
+    let mut world0 = World::new_with_cloner(cloners.clone());
     world0.spawn((true,));
 
-    let mut world1 = World::new();
+    let mut world1 = World::new_with_cloner(cloners.clone());
     world1.add_world_to_world(&mut world0);
 
     assert!(world1.query::<(&bool,)>().unwrap().iter().count() == 1);
 }
-*/
+
+#[test]
+fn add_world_to_world1() {
+    use std::sync::Arc;
+
+    let mut cloners = Cloners::new();
+    cloners.register_clone_type::<bool>();
+
+    let cloners = Arc::new(cloners);
+    use crate::*;
+    let mut world0 = World::new_with_cloner(cloners.clone());
+    world0.spawn((true,));
+
+    let mut world1 = World::new_with_cloner(cloners.clone());
+    world1.spawn((true,));
+    world1.add_world_to_world(&mut world0);
+
+    assert!(world1.query::<(&bool,)>().unwrap().iter().count() == 2);
+}

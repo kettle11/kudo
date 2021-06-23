@@ -5,11 +5,29 @@ use crate::*;
 pub trait ComponentTrait: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ComponentTrait for T {}
 
+#[derive(Clone)]
+pub struct Cloners(pub(crate) HashMap<TypeId, Arc<dyn ClonerTrait>>);
+
+impl Cloners {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    pub fn register_clone_type<T: WorldClone + 'static + Send + Sync>(&mut self) {
+        self.0.insert(
+            TypeId::of::<T>(),
+            Arc::new(Cloner::<T> {
+                phantom: std::marker::PhantomData,
+            }),
+        );
+    }
+}
+
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
-    pub(crate) cloners: HashMap<TypeId, Arc<dyn ClonerTrait>>,
+    pub cloners: Arc<Cloners>,
 }
 
 #[derive(PartialEq, Debug, Hash, Eq, Clone, Copy)]
@@ -45,7 +63,16 @@ impl World {
             archetypes: Vec::new(),
             entities: Entities::new(),
             storage_lookup: StorageLookup::new(),
-            cloners: HashMap::new(),
+            cloners: Arc::new(Cloners::new()),
+        }
+    }
+
+    pub fn new_with_cloner(cloners: Arc<Cloners>) -> Self {
+        Self {
+            archetypes: Vec::new(),
+            entities: Entities::new(),
+            storage_lookup: StorageLookup::new(),
+            cloners: cloners.clone(),
         }
     }
 
@@ -66,7 +93,7 @@ impl World {
             // If a new `Archetype` is constructed insert its new channel.
             new_archetype.channels.insert(
                 add_info.channel_index,
-                ComponentChannelStorage::new::<T>(self.cloners.get(&type_id).cloned()),
+                ComponentChannelStorage::new::<T>(self.cloners.0.get(&type_id).cloned()),
             );
         }
 
@@ -361,9 +388,9 @@ impl World {
     }
 
     pub fn add_world_to_world(&mut self, other: &mut World) {
+        let cloners = &mut other.cloners;
         let Self {
             archetypes,
-            cloners,
             storage_lookup,
             entities,
             ..
@@ -374,7 +401,7 @@ impl World {
 
             if let Some(new_archetype) = old_archetype.clone_archetype(&mut entity_migrator) {
                 let mut type_ids = old_archetype.type_ids();
-                type_ids.retain(|type_id| cloners.contains_key(type_id));
+                type_ids.retain(|type_id| cloners.0.contains_key(type_id));
 
                 // Check if there is an existing archetype or not.
                 if let Some(archetype_index) =
@@ -406,7 +433,7 @@ impl World {
 
             if let Some(new_archetype) = archetype.clone_archetype(&mut entity_migrator) {
                 let mut type_ids = archetype.type_ids();
-                type_ids.retain(|type_id| cloners.contains_key(type_id));
+                type_ids.retain(|type_id| cloners.0.contains_key(type_id));
 
                 // Check if there is an existing archetype or not.
                 // This can happen if an `Archetype` contains components that cannot be cloned.
@@ -427,15 +454,6 @@ impl World {
             entities,
             storage_lookup,
         }
-    }
-
-    pub fn register_clone_type<T: WorldClone + 'static + Send + Sync>(&mut self) {
-        self.cloners.insert(
-            TypeId::of::<T>(),
-            Arc::new(Cloner::<T> {
-                phantom: std::marker::PhantomData,
-            }),
-        );
     }
 }
 

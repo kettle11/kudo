@@ -34,7 +34,7 @@ macro_rules! component_bundle_impl {
 
                         let mut new_archetype = Archetype::new();
                         // Insert each channel
-                        $(new_archetype.push_new_channel::<$name>(world.cloners.get(&type_ids[$index]).cloned());)*
+                        $(new_archetype.push_new_channel::<$name>(world.cloners.0.get(&type_ids[$index]).cloned());)*
                         // Sort the channels
                         new_archetype.sort_channels();
 
