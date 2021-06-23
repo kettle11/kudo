@@ -320,6 +320,7 @@ impl World {
     ) {
         let (old_archetype, new_archetype) =
             index_mut_twice(&mut self.archetypes, first_archetype, second_archetype);
+
         // Migrate components from old archetype
 
         let mut first_channel_iter = old_archetype.channels.iter_mut();
@@ -366,8 +367,9 @@ impl World {
             let swapped_entity_location = self
                 .entities
                 .get_at_index_mut(swapped_entity_index)
-                .as_mut()
-                .unwrap();
+                .as_mut();
+
+            let swapped_entity_location = swapped_entity_location.unwrap();
             swapped_entity_location.index_within_archetype = entity_index_within_archetype;
 
             // Update the location of the entity
@@ -388,7 +390,7 @@ impl World {
     }
 
     pub fn add_world_to_world(&mut self, other: &mut World) {
-        let cloners = &mut other.cloners;
+        let cloners = &mut self.cloners;
         let Self {
             archetypes,
             storage_lookup,
@@ -399,61 +401,39 @@ impl World {
         for old_archetype in &mut other.archetypes {
             let mut entity_migrator = EntityMigrator::new(&mut new_entities, entities);
 
-            if let Some(new_archetype) = old_archetype.clone_archetype(&mut entity_migrator) {
-                let mut type_ids = old_archetype.type_ids();
-                type_ids.retain(|type_id| cloners.0.contains_key(type_id));
+            let mut new_archetype = old_archetype.clone_archetype(&mut entity_migrator, &cloners);
+            let type_ids = new_archetype.type_ids();
 
-                // Check if there is an existing archetype or not.
-                if let Some(archetype_index) =
-                    storage_lookup.get_archetype_with_components(&type_ids)
+            // Check if there is an existing archetype or not.
+            if let Some(archetype_index) = storage_lookup.get_archetype_with_components(&type_ids) {
+                // If there is an existing [Archetype] merge into that.
+                archetypes[archetype_index].append_archetype(
+                    new_archetype,
+                    entities,
+                    archetype_index,
+                );
+            } else {
+                let new_archetype_index = archetypes.len();
+                storage_lookup.new_archetype(new_archetype_index, &type_ids);
+                // Update the location of each `Entity`.
+                for (index_within_archetype, entity) in
+                    new_archetype.entities.get_mut().unwrap().iter().enumerate()
                 {
-                    // If there is an existing [Archetype] merge into that.
-                    archetypes[archetype_index].append_archetype(new_archetype);
-                } else {
-                    storage_lookup.new_archetype(archetypes.len(), &type_ids);
-                    archetypes.push(new_archetype);
+                    *entities.get_at_index_mut(entity.index) = Some(EntityLocation {
+                        archetype_index: new_archetype_index,
+                        index_within_archetype,
+                    });
                 }
+                archetypes.push(new_archetype);
             }
         }
     }
 
-    /// This isn't the regular [Clone] trait because [World] needs exclusive access to be able to
-    /// clone it.
+    /// Creates a new [World] cloning all components declared to this [World]'s` [Cloner]
     pub fn clone(&mut self) -> Self {
-        let mut new_entities = HashMap::new();
-
-        let mut entities = Entities::new();
-
-        let cloners = self.cloners.clone();
-        let mut archetypes: Vec<Archetype> = Vec::with_capacity(self.archetypes.len());
-        let mut storage_lookup = StorageLookup::new();
-
-        for archetype in &mut self.archetypes {
-            let mut entity_migrator = EntityMigrator::new(&mut new_entities, &mut entities);
-
-            if let Some(new_archetype) = archetype.clone_archetype(&mut entity_migrator) {
-                let mut type_ids = archetype.type_ids();
-                type_ids.retain(|type_id| cloners.0.contains_key(type_id));
-
-                // Check if there is an existing archetype or not.
-                // This can happen if an `Archetype` contains components that cannot be cloned.
-                if let Some(archetype_index) =
-                    storage_lookup.get_archetype_with_components(&type_ids)
-                {
-                    // If there is an existing `Archetype` merge into that.
-                    archetypes[archetype_index].append_archetype(new_archetype);
-                } else {
-                    storage_lookup.new_archetype(archetypes.len(), &type_ids);
-                    archetypes.push(new_archetype)
-                }
-            }
-        }
-        Self {
-            archetypes,
-            cloners,
-            entities,
-            storage_lookup,
-        }
+        let mut new_world = World::new_with_cloners(self.cloners.clone());
+        new_world.add_world_to_world(self);
+        new_world
     }
 }
 

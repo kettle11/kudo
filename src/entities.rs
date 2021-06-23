@@ -9,7 +9,7 @@ pub(crate) struct EntitiesInner {
 
 impl EntitiesInner {
     pub fn new_handle(&mut self) -> Entity {
-        if let Some(index) = self.free_entity_indices.pop() {
+        let entity = if let Some(index) = self.free_entity_indices.pop() {
             let generation_and_location = &mut self.generation_and_location[index];
             generation_and_location.1 = None;
 
@@ -26,7 +26,8 @@ impl EntitiesInner {
                 index,
                 generation: 0,
             }
-        }
+        };
+        entity
     }
 }
 
@@ -70,7 +71,8 @@ impl Entities {
 
     pub fn reserve_entity(&self) -> Entity {
         let mut inner = self.inner.lock().unwrap();
-        inner.new_handle()
+        let handle = inner.new_handle();
+        handle
     }
 
     /// Returns a new Entity handle but does not yet initialize its location within the world.

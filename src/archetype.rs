@@ -33,15 +33,16 @@ impl Archetype {
     pub(crate) fn clone_archetype(
         &mut self,
         entity_migrator: &mut EntityMigrator,
-    ) -> Option<Archetype> {
+        cloners: &Cloners,
+    ) -> Archetype {
         let mut archetype = Archetype::new();
         for old_channel_storage in &mut self.channels {
             let ComponentChannelStorage {
-                cloner,
                 component_channel,
+                type_id,
                 ..
             } = old_channel_storage;
-            if let Some(cloner) = cloner {
+            if let Some(cloner) = cloners.0.get(type_id) {
                 let component_channel =
                     cloner.clone_channel(component_channel.as_mut(), entity_migrator);
                 let channel_storage = ComponentChannelStorage {
@@ -61,11 +62,16 @@ impl Archetype {
             .map(|e| entity_migrator.migrate(*e))
             .collect();
         *archetype.entities.get_mut().unwrap() = new_entities;
-        Some(archetype)
+        archetype
     }
 
     /// Move all components from `other_archetype` into `self`
-    pub(crate) fn append_archetype(&mut self, mut other_archetype: Archetype) {
+    pub(crate) fn append_archetype(
+        &mut self,
+        mut other_archetype: Archetype,
+        new_entities_manager: &mut Entities,
+        self_archetype_index: usize,
+    ) {
         for (new_channel, old_channel) in self
             .channels
             .iter_mut()
@@ -78,6 +84,16 @@ impl Archetype {
 
         let self_entities = self.entities.get_mut().unwrap();
         let other_entities = other_archetype.entities.get_mut().unwrap();
+        let mut index_within_archetype = self_entities.len();
+
+        // Update each `Entity`'s known location.
+        for entity in other_entities.iter_mut() {
+            *new_entities_manager.get_at_index_mut(entity.index) = Some(EntityLocation {
+                archetype_index: self_archetype_index,
+                index_within_archetype,
+            });
+            index_within_archetype += 1;
+        }
         self_entities.append(other_entities);
     }
 
@@ -148,7 +164,6 @@ impl Archetype {
     */
 
     pub(crate) fn new_channel_same_type(&mut self, c: &ComponentChannelStorage) {
-        println!("NEW CHANNEL SAME TYPE: {:?}", c.type_id());
         self.channels.push(c.new_same_type());
     }
 
@@ -368,27 +383,29 @@ where
 
 pub struct EntityMigrator<'a> {
     /// New entities indexed with the index of the old entities.
-    new_entities: &'a mut HashMap<Entity, Entity>,
+    old_to_new_entities: &'a mut HashMap<Entity, Entity>,
     new_entities_manager: &'a mut Entities,
 }
 impl<'a> EntityMigrator<'a> {
     pub fn new(
-        new_entities: &'a mut HashMap<Entity, Entity>,
+        old_to_new_entities: &'a mut HashMap<Entity, Entity>,
         new_entities_manager: &'a mut Entities,
     ) -> Self {
         Self {
-            new_entities,
+            old_to_new_entities,
             new_entities_manager,
         }
     }
 
     pub fn migrate(&mut self, old_entity: Entity) -> Entity {
-        if let Some(entity) = self.new_entities.get(&old_entity) {
+        let new_entity = if let Some(entity) = self.old_to_new_entities.get(&old_entity) {
             *entity
         } else {
             let new_entity = self.new_entities_manager.new_entity_handle();
-            self.new_entities.insert(old_entity, new_entity);
+            self.old_to_new_entities.insert(old_entity, new_entity);
             new_entity
-        }
+        };
+
+        new_entity
     }
 }
