@@ -2,7 +2,7 @@ use crate::*;
 
 use std::any::TypeId;
 // A DynamicBundle struct could be implemented that could spawn things non-statically.
-pub trait ComponentBundle: ComponentTrait {
+pub trait ComponentBundle {
     /// For now this only works correctly for empty entities.
     fn add_to_entity(self, world: &mut World, entity: Entity);
     fn spawn_in_world(self, world: &mut World) -> Entity;
@@ -34,7 +34,7 @@ macro_rules! component_bundle_impl {
 
                         let mut new_archetype = Archetype::new();
                         // Insert each channel
-                        $(new_archetype.push_new_channel::<$name>(world.cloners.0.get(&type_ids[$index]).cloned());)*
+                        $(new_archetype.push_new_channel::<$name>();)*
                         // Sort the channels
                         new_archetype.sort_channels();
 

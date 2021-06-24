@@ -8,6 +8,8 @@ pub struct HierarchyNode {
     pub(crate) previous_sibling: Option<Entity>,
 }
 
+impl ComponentTrait for HierarchyNode {}
+
 impl HierarchyNode {
     pub fn parent(&self) -> &Option<Entity> {
         &self.parent

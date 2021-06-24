@@ -1,5 +1,11 @@
 use kudo::*;
 
+struct Health(i32);
+struct Name(String);
+
+impl ComponentTrait for Health {}
+impl ComponentTrait for Name {}
+
 fn main() {
     // First we create the world.
     let mut world = World::new();
@@ -8,11 +14,10 @@ fn main() {
     // With Kudo components are just plain structs.
 
     // This will be our health component
-    struct Health(i32);
 
     // Spawn the entity with a String component we'll use for the name and a Health component.
     // Within the call to spawn we pass in a tuple that can have multiple components.
-    world.spawn(("Medusa".to_string(), Health(0)));
+    world.spawn((Name("Medusa".to_string()), Health(0)));
 
     // Query the world for entities that have a String component and a Health component.
     // The '&' before each component requests read-only access to the component.

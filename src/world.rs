@@ -2,10 +2,8 @@ use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use crate::*;
 
-pub trait ComponentTrait: Send + Sync + 'static {}
-impl<T: Send + Sync + 'static> ComponentTrait for T {}
-
-#[derive(Clone)]
+/*
+ #[derive(Clone)]
 pub struct Cloners(pub(crate) HashMap<TypeId, Arc<dyn ClonerTrait>>);
 
 impl Cloners {
@@ -22,12 +20,13 @@ impl Cloners {
         );
     }
 }
+*/
 
 pub struct World {
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) storage_lookup: StorageLookup,
     pub(crate) entities: Entities,
-    pub cloners: Arc<Cloners>,
+    //  pub cloners: Arc<Cloners>,
 }
 
 #[derive(PartialEq, Debug, Hash, Eq, Clone, Copy)]
@@ -63,10 +62,11 @@ impl World {
             archetypes: Vec::new(),
             entities: Entities::new(),
             storage_lookup: StorageLookup::new(),
-            cloners: Arc::new(Cloners::new()),
+            //cloners: Arc::new(Cloners::new()),
         }
     }
 
+    /*
     pub fn new_with_cloners(cloners: Arc<Cloners>) -> Self {
         Self {
             archetypes: Vec::new(),
@@ -75,6 +75,7 @@ impl World {
             cloners: cloners.clone(),
         }
     }
+    */
 
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(self)
@@ -91,10 +92,9 @@ impl World {
         let new_archetype = &mut self.archetypes[add_info.archetype_index];
         if add_info.new_archetype {
             // If a new `Archetype` is constructed insert its new channel.
-            new_archetype.channels.insert(
-                add_info.channel_index,
-                ComponentChannelStorage::new::<T>(self.cloners.0.get(&type_id).cloned()),
-            );
+            new_archetype
+                .channels
+                .insert(add_info.channel_index, ComponentChannelStorage::new::<T>());
         }
 
         if let Some(replace_index) = add_info.replace_index {
@@ -389,6 +389,7 @@ impl World {
         new_archetype.entities.get_mut().unwrap().push(entity);
     }
 
+    /*
     pub fn add_world_to_world(&mut self, other: &mut World) {
         let cloners = &mut self.cloners;
         let Self {
@@ -435,6 +436,7 @@ impl World {
         new_world.add_world_to_world(self);
         new_world
     }
+    */
 }
 
 pub(crate) struct AddInfo {

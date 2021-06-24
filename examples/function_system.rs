@@ -7,6 +7,10 @@ struct Health(f32);
 struct Name(String);
 struct CreepySnakeHair(u32);
 
+impl ComponentTrait for Health {}
+impl ComponentTrait for Name {}
+impl ComponentTrait for CreepySnakeHair {}
+
 fn main() {
     let mut world = World::new();
 

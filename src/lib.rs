@@ -8,8 +8,8 @@ mod iterators;
 mod queries;
 mod world;
 
+pub use archetype::EntityMigrator;
 use archetype::*;
-pub use archetype::{EntityMigrator, WorldClone};
 pub use component_bundle::*;
 use entities::*;
 pub use error::*;
@@ -31,4 +31,7 @@ use storage_lookup::*;
 //
 // mod scheduler1;
 
+#[cfg(test)]
 mod tests;
+
+pub trait ComponentTrait: Send + Sync + 'static {}
