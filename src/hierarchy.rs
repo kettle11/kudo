@@ -32,6 +32,22 @@ impl HierarchyNode {
     }
 }
 
+impl WorldClone for HierarchyNode {
+    fn world_clone(&self, entity_migrator: &mut EntityMigrator) -> Self {
+        let parent = self.parent.map(|e| entity_migrator.migrate(e));
+        let last_child = self.last_child.map(|e| entity_migrator.migrate(e));
+        let next_sibling = self.next_sibling.map(|e| entity_migrator.migrate(e));
+        let previous_sibling = self.previous_sibling.map(|e| entity_migrator.migrate(e));
+
+        Self {
+            parent,
+            last_child,
+            next_sibling,
+            previous_sibling,
+        }
+    }
+}
+
 impl World {
     pub fn set_parent(&mut self, parent: Option<Entity>, child: Entity) {
         let mut add_hierarchy_to_parent = false;

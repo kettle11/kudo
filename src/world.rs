@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, sync::Arc};
 
 use crate::*;
 
@@ -21,6 +21,15 @@ impl Cloners {
             }),
         );
     }
+}
+
+thread_local! {
+    static CLONERS: RefCell<Arc<Cloners>> = RefCell::new(Arc::new(Cloners::new()));
+}
+
+/// Set the `Cloners` used by all future worlds created.
+pub fn set_cloners(cloners: Cloners) {
+    CLONERS.with(|w| *w.borrow_mut() = Arc::new(cloners))
 }
 
 pub struct World {
@@ -59,14 +68,17 @@ pub struct EntityLocation {
 
 impl World {
     pub fn new() -> Self {
+        let cloners = CLONERS.with(|w| w.borrow().clone());
+
         Self {
             archetypes: Vec::new(),
             entities: Entities::new(),
             storage_lookup: StorageLookup::new(),
-            cloners: Arc::new(Cloners::new()),
+            cloners,
         }
     }
 
+    /*
     pub fn new_with_cloners(cloners: Arc<Cloners>) -> Self {
         Self {
             archetypes: Vec::new(),
@@ -75,6 +87,7 @@ impl World {
             cloners: cloners.clone(),
         }
     }
+    */
 
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(self)
@@ -431,7 +444,7 @@ impl World {
 
     /// Creates a new [World] cloning all components declared to this [World]'s` [Cloner]
     pub fn clone(&mut self) -> Self {
-        let mut new_world = World::new_with_cloners(self.cloners.clone());
+        let mut new_world = World::new();
         new_world.add_world_to_world(self);
         new_world
     }
