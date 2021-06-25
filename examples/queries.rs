@@ -2,12 +2,10 @@
 //! and multiple queries are passed into the system.
 
 use kudo::*;
+
 struct ProgramInfo {
     name: String,
 }
-
-impl ComponentTrait for ProgramInfo {}
-
 fn main() {
     let mut world = World::new();
 

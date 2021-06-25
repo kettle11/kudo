@@ -1,7 +1,3 @@
-impl crate::ComponentTrait for i32 {}
-impl crate::ComponentTrait for bool {}
-impl crate::ComponentTrait for f32 {}
-
 #[test]
 fn async_query() {
     use crate::*;
@@ -193,10 +189,6 @@ fn sum() {
     struct Velocity([f32; 3]);
     struct Rotation([f32; 3]);
 
-    impl crate::ComponentTrait for Position {}
-    impl crate::ComponentTrait for Velocity {}
-    impl crate::ComponentTrait for Rotation {}
-
     let mut world = World::new();
 
     for _ in 0..10 {
@@ -342,7 +334,6 @@ fn empty_archetype() {
     world.remove_component::<bool>(entity);
 }
 
-/*
 #[test]
 fn add_world_to_world0() {
     use std::sync::Arc;
@@ -385,4 +376,3 @@ fn add_world_to_world1() {
 
     assert!(world1.query::<(&bool,)>().unwrap().iter().count() == 2);
 }
-*/

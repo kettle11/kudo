@@ -29,7 +29,6 @@ impl Archetype {
         self.entities.read().unwrap()
     }
 
-    /*
     /// Clones the channels that can be cloned.
     pub(crate) fn clone_archetype(
         &mut self,
@@ -65,7 +64,6 @@ impl Archetype {
         *archetype.entities.get_mut().unwrap() = new_entities;
         archetype
     }
-    */
 
     /// Move all components from `other_archetype` into `self`
     pub(crate) fn append_archetype(
@@ -181,8 +179,12 @@ impl Archetype {
         self.entities.get_mut().unwrap().swap_remove(index);
     }
 
-    pub(crate) fn push_new_channel<T: ComponentTrait>(&mut self) {
-        self.channels.push(ComponentChannelStorage::new::<T>())
+    pub(crate) fn push_new_channel<T: Sync + Send + 'static>(
+        &mut self,
+        cloner: Option<Arc<dyn ClonerTrait>>,
+    ) {
+        self.channels
+            .push(ComponentChannelStorage::new::<T>(cloner))
     }
 }
 
@@ -193,6 +195,7 @@ pub struct ComponentChannelStorage {
     pub(crate) type_id: TypeId,
     //  pub(crate) channel_id: usize,
     pub(crate) component_channel: Box<dyn ComponentChannelTrait>,
+    pub(crate) cloner: Option<Arc<dyn ClonerTrait>>,
 }
 
 impl ComponentChannelStorage {
@@ -200,6 +203,7 @@ impl ComponentChannelStorage {
         Self {
             type_id: self.type_id,
             component_channel: self.component_channel.new_same_type(),
+            cloner: self.cloner.clone(),
             // channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
         }
     }
@@ -217,11 +221,12 @@ impl ComponentChannelStorage {
 }
 
 impl ComponentChannelStorage {
-    pub(crate) fn new<T: ComponentTrait>() -> Self {
+    pub(crate) fn new<T: ComponentTrait>(cloner: Option<Arc<dyn ClonerTrait>>) -> Self {
         Self {
             component_channel: Box::new(RwLock::new(Vec::<T>::new())),
             // channel_id: CHANNEL_COUNT.fetch_add(1, Ordering::Relaxed),
             type_id: TypeId::of::<T>(),
+            cloner,
         }
     }
 }
@@ -300,14 +305,13 @@ pub(crate) trait ClonerTrait: Send + Sync {
         entity_migrator: &mut EntityMigrator,
     ) -> Box<dyn ComponentChannelTrait>;
 }
-/*/
 
 #[derive(Clone)]
 pub(crate) struct Cloner<T> {
     pub phantom: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<T: WorldClone + ComponentTrait> ClonerTrait for Cloner<T> {
+impl<T: WorldClone + 'static + Send + Sync> ClonerTrait for Cloner<T> {
     fn clone_within(
         &self,
         clone_from_index: usize,
@@ -366,7 +370,7 @@ pub trait WorldClone {
     fn world_clone(&self, entity_migrator: &mut EntityMigrator) -> Self;
 }
 
-impl<T: ComponentTrait> WorldClone for Vec<T>
+impl<T> WorldClone for Vec<T>
 where
     T: WorldClone,
 {
@@ -376,7 +380,6 @@ where
             .collect()
     }
 }
-*/
 
 pub struct EntityMigrator<'a> {
     /// New entities indexed with the index of the old entities.

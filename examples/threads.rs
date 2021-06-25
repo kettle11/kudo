@@ -1,16 +1,13 @@
 use kudo::*;
 use std::sync::Arc;
 
-struct I32(i32);
-struct Bool(bool);
-
-impl ComponentTrait for I32 {}
-impl ComponentTrait for Bool {}
+#[derive(Debug)]
+struct A {}
 
 fn main() {
     let mut world = World::new();
 
-    world.spawn((Bool(true), I32(10)));
+    world.spawn((true, 10));
 
     let world = Arc::new(world);
     let world_other_thread = world.clone();
