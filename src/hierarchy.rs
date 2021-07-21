@@ -49,7 +49,8 @@ impl WorldClone for HierarchyNode {
 }
 
 impl World {
-    pub fn set_parent(&mut self, parent: Option<Entity>, child: Entity) {
+    // This should return a result instead
+    pub fn set_parent(&mut self, parent: Option<Entity>, child: Entity) -> Option<()> {
         let mut add_hierarchy_to_parent = false;
         let mut add_hierarchy_to_child = false;
 
@@ -85,7 +86,7 @@ impl World {
         if let Some(child) = self.get_component_mut::<HierarchyNode>(child) {
             old_parent = child.parent;
 
-            child.parent = parent.map(|e| e);
+            child.parent = parent;
             child.previous_sibling = previous_last_child;
             child.next_sibling = None;
         } else {
@@ -93,18 +94,15 @@ impl World {
         }
 
         if add_hierarchy_to_parent {
-            let parent = parent.clone().unwrap();
-
             self.add_component(
-                parent,
+                parent.unwrap(),
                 HierarchyNode {
                     parent: None,
                     last_child: Some(child),
                     next_sibling: None,
                     previous_sibling: None,
                 },
-            )
-            .unwrap()
+            )?
         }
 
         if add_hierarchy_to_child {
@@ -121,8 +119,9 @@ impl World {
 
         // Remove the entity from its old parent, if it has one.
         if let Some(old_parent) = old_parent {
-            self.remove_child(old_parent, child).unwrap()
+            self.remove_child(old_parent, child).ok()?;
         }
+        Some(())
     }
 
     fn remove_child(&mut self, parent: Entity, child: Entity) -> Result<(), ()> {

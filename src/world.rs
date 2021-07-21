@@ -402,7 +402,8 @@ impl World {
         new_archetype.entities.get_mut().unwrap().push(entity);
     }
 
-    pub fn add_world_to_world(&mut self, other: &mut World) {
+    /// Returns a list of all new `Entity`s created.
+    pub fn add_world_to_world(&mut self, other: &mut World) -> Vec<Entity> {
         let cloners = &mut self.cloners;
         let Self {
             archetypes,
@@ -440,6 +441,8 @@ impl World {
                 archetypes.push(new_archetype);
             }
         }
+
+        new_entities.values().copied().collect()
     }
 
     /// Creates a new [World] cloning all components declared to this [World]'s` [Cloner]
