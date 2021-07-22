@@ -2,8 +2,8 @@ use std::{any::TypeId, cell::RefCell, collections::HashMap, sync::Arc};
 
 use crate::*;
 
-pub trait ComponentTrait: Send + Sync + 'static {}
-impl<T: Send + Sync + 'static> ComponentTrait for T {}
+pub trait ComponentTrait: Send + 'static {}
+impl<T: Send + 'static> ComponentTrait for T {}
 
 #[derive(Clone)]
 pub struct Cloners(pub(crate) HashMap<TypeId, Arc<dyn ClonerTrait>>);
@@ -13,7 +13,7 @@ impl Cloners {
         Self(HashMap::new())
     }
 
-    pub fn register_clone_type<T: WorldClone + 'static + Send + Sync>(&mut self) {
+    pub fn register_clone_type<T: WorldClone + 'static + Send>(&mut self) {
         self.0.insert(
             TypeId::of::<T>(),
             Arc::new(Cloner::<T> {
