@@ -237,6 +237,40 @@ macro_rules! query_impl{
                 None
             }
         }
+
+        // This is a bit crammed in here, it's just an implementation of QueryTrait
+        // for tuples of query traits.
+        impl<'a, $($name: QueryTrait<'a>),*> QueryTrait<'a> for ($($name,)*) {
+            type Result = ($($name::Result,)*);
+
+            #[allow(unused, non_snake_case)]
+            fn get_query(world: &'a World, query_info: &Self::QueryInfo) -> Result<Self::Result, Error> {
+                let ($($name,)*) = query_info;
+                Ok((($($name::get_query(world, $name)?,)*)))
+            }
+        }
+
+        impl<$($name: GetQueryInfoTrait),*> GetQueryInfoTrait for ($($name,)*) {
+            type QueryInfo =  ($($name::QueryInfo,)*);
+
+            #[allow(unused)]
+            fn query_info(world: &World) -> Result<Self::QueryInfo, Error> {
+                Ok((($($name::query_info(world)?,)*)))
+            }
+        }
+
+        impl<'a, $($name: AsSystemArg<'a>),*> AsSystemArg<'a> for ($($name,)*) {
+            type Arg =  ($($name::Arg,)*);
+
+            #[allow(non_snake_case)]
+            fn as_system_arg(&'a mut self) -> Self::Arg {
+                let ($($name,)*) = self;
+                (($($name::as_system_arg($name),)*))
+            }
+        }
+
+        impl<$($name: QueryInfoTrait),*> QueryInfoTrait for ($($name,)*) {}
+
     }
 }
 
