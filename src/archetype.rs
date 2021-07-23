@@ -179,7 +179,7 @@ impl Archetype {
         self.entities.get_mut().unwrap().swap_remove(index);
     }
 
-    pub(crate) fn push_new_channel<T: Send + 'static>(
+    pub(crate) fn push_new_channel<T: Sync + Send + 'static>(
         &mut self,
         cloner: Option<Arc<dyn ClonerTrait>>,
     ) {
@@ -231,7 +231,7 @@ impl ComponentChannelStorage {
     }
 }
 
-pub trait ComponentChannelTrait: Send {
+pub trait ComponentChannelTrait: Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn new_same_type(&self) -> Box<dyn ComponentChannelTrait>;
@@ -311,7 +311,7 @@ pub(crate) struct Cloner<T> {
     pub phantom: std::marker::PhantomData<fn() -> T>,
 }
 
-impl<T: WorldClone + 'static + Send> ClonerTrait for Cloner<T> {
+impl<T: WorldClone + 'static + Send + Sync> ClonerTrait for Cloner<T> {
     fn clone_within(
         &self,
         clone_from_index: usize,
