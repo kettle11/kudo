@@ -78,7 +78,6 @@ impl World {
         }
     }
 
-    /*
     pub fn new_with_cloners(cloners: Arc<Cloners>) -> Self {
         Self {
             archetypes: Vec::new(),
@@ -87,7 +86,6 @@ impl World {
             cloners: cloners.clone(),
         }
     }
-    */
 
     pub fn spawn<CB: ComponentBundle>(&mut self, component_bundle: CB) -> Entity {
         component_bundle.spawn_in_world(self)
