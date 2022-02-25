@@ -1,3 +1,5 @@
+## This repository is no longer maintained. But `kudo` lives on as a crate within the `koi` game engine project: https://github.com/kettle11/koi/tree/main/crates/kecs
+
 # 👏 kudo
 
 [![Documentation](https://docs.rs/kudo/badge.svg)](https://docs.rs/kudo/)
